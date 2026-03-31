@@ -25,50 +25,39 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     return () => unsubscribe();
   }, []);
 
-  const [channelType, setChannelType] = useState<'synchronized' | 'dynamic'>('synchronized');
-
   const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!channelName) return;
 
     setIsProcessing(true);
     try {
+      const links = videoLinks.split('\n').filter(l => l.trim().length > 0);
+      const videoInfos = await processYoutubeLinks(links);
+
       const channelPath = 'channels';
-      const channelData: any = {
+      const channelRef = await addDoc(collection(db, channelPath), {
         name: channelName,
         description: channelDesc,
         startTime: Date.now(),
         createdAt: Date.now(),
-        type: channelType,
-      };
-
-      if (channelType === 'dynamic') {
-        channelData.query = suggestTopic || channelName;
-      }
-
-      const channelRef = await addDoc(collection(db, channelPath), channelData).catch(err => {
+      }).catch(err => {
         handleFirestoreError(err, OperationType.CREATE, channelPath);
         return null;
       });
 
       if (!channelRef) return;
 
-      if (channelType === 'synchronized') {
-        const links = videoLinks.split('\n').filter(l => l.trim().length > 0);
-        const videoInfos = await processYoutubeLinks(links);
-
-        const batch = writeBatch(db);
-        videoInfos.forEach((v, index) => {
-          const videoPath = `channels/${channelRef.id}/videos`;
-          const videoRef = doc(collection(db, videoPath));
-          batch.set(videoRef, {
-            ...v,
-            order: index,
-          });
+      const batch = writeBatch(db);
+      videoInfos.forEach((v, index) => {
+        const videoPath = `channels/${channelRef.id}/videos`;
+        const videoRef = doc(collection(db, videoPath));
+        batch.set(videoRef, {
+          ...v,
+          order: index,
         });
+      });
 
-        await batch.commit().catch(err => handleFirestoreError(err, OperationType.WRITE, `channels/${channelRef.id}/videos`));
-      }
+      await batch.commit().catch(err => handleFirestoreError(err, OperationType.WRITE, `channels/${channelRef.id}/videos`));
       
       setChannelName('');
       setChannelDesc('');
@@ -110,21 +99,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         </div>
 
         <div className="space-y-4">
-          <div className="flex p-1 bg-zinc-800 rounded-lg">
-            <button
-              onClick={() => setChannelType('synchronized')}
-              className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${channelType === 'synchronized' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              Synchronized
-            </button>
-            <button
-              onClick={() => setChannelType('dynamic')}
-              className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${channelType === 'dynamic' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-            >
-              Dynamic (AI)
-            </button>
-          </div>
-
           <div className="flex gap-2">
             <input
               type="text"
@@ -157,18 +131,16 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               onChange={(e) => setChannelDesc(e.target.value)}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-orange-500 h-20"
             />
-            {channelType === 'synchronized' && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">YouTube Links (One per line)</label>
-                <textarea
-                  placeholder="https://youtube.com/watch?v=..."
-                  value={videoLinks}
-                  onChange={(e) => setVideoLinks(e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 h-32"
-                  required
-                />
-              </div>
-            )}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">YouTube Links (One per line)</label>
+              <textarea
+                placeholder="https://youtube.com/watch?v=..."
+                value={videoLinks}
+                onChange={(e) => setVideoLinks(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 h-32"
+                required
+              />
+            </div>
 
             <button
               type="submit"
@@ -178,12 +150,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               {isProcessing ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Processing...</span>
+                  <span>Processing with AI...</span>
                 </>
               ) : (
                 <>
                   <ListPlus className="w-5 h-5" />
-                  <span>{channelType === 'synchronized' ? 'Create & Sync' : 'Create Dynamic Channel'}</span>
+                  <span>Create & Sync</span>
                 </>
               )}
             </button>

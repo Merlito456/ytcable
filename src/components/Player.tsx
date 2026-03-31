@@ -11,20 +11,10 @@ interface PlayerProps {
 export function Player({ channel, videos }: PlayerProps) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [isMuted, setIsMuted] = useState(true); // Start muted to allow autoplay
-  const [dynamicIndex, setDynamicIndex] = useState(0);
   const playerRef = useRef<any>(null);
 
   useEffect(() => {
     if (videos.length === 0) return;
-
-    if (channel.type === 'dynamic') {
-      setPlayback({
-        currentVideo: videos[dynamicIndex],
-        offset: 0,
-        nextVideo: videos[(dynamicIndex + 1) % videos.length]
-      });
-      return;
-    }
 
     const calculatePlayback = () => {
       const now = Date.now();
@@ -56,14 +46,12 @@ export function Player({ channel, videos }: PlayerProps) {
     calculatePlayback();
     const interval = setInterval(calculatePlayback, 1000);
     return () => clearInterval(interval);
-  }, [channel, videos, dynamicIndex]);
+  }, [channel, videos]);
 
   const onReady: YouTubeProps['onReady'] = (event) => {
     playerRef.current = event.target;
     if (playback) {
-      if (channel.type === 'synchronized') {
-        event.target.seekTo(playback.offset, true);
-      }
+      event.target.seekTo(playback.offset, true);
       event.target.playVideo();
       
       // Try to unmute. Note: Browsers may block unmuted autoplay until user interaction.
@@ -89,18 +77,13 @@ export function Player({ channel, videos }: PlayerProps) {
 
   const onStateChange: YouTubeProps['onStateChange'] = (event) => {
     // Sync check when video starts playing
-    if (event.data === YouTube.PlayerState.PLAYING && playback && channel.type === 'synchronized') {
+    if (event.data === YouTube.PlayerState.PLAYING && playback) {
       const currentTime = event.target.getCurrentTime();
       const diff = Math.abs(currentTime - playback.offset);
       // If more than 2 seconds out of sync, re-seek
       if (diff > 2) {
         event.target.seekTo(playback.offset, true);
       }
-    }
-
-    // Handle video end for dynamic channels
-    if (event.data === YouTube.PlayerState.ENDED && channel.type === 'dynamic') {
-      setDynamicIndex((prev) => (prev + 1) % videos.length);
     }
     
     // If paused by user or browser, try to resume (Cable TV feel)

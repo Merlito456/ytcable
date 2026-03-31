@@ -4,8 +4,6 @@ export interface Channel {
   startTime: number;
   createdAt: number;
   description?: string;
-  type: 'synchronized' | 'dynamic';
-  query?: string;
 }
 
 export interface Video {
