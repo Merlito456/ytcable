@@ -1,8 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, doc, writeBatch, onSnapshot, query, orderBy, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { collection, addDoc, doc, writeBatch, onSnapshot, query, orderBy, deleteDoc, setDoc } from 'firebase/firestore';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { db, auth } from '../firebase';
-import { Plus, ListPlus, Loader2, X, Trash2, Settings, Info, Video, Link } from 'lucide-react';
+import { 
+  Plus, 
+  ListPlus, 
+  Loader2, 
+  X, 
+  Trash2, 
+  Settings, 
+  Info, 
+  Video as VideoIcon,  // Renamed to avoid conflict with Video type
+  Link 
+} from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/error-handler';
 import { Channel, Video } from '../types';
 
@@ -19,7 +29,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [channelDesc, setChannelDesc] = useState('');
   const [videoData, setVideoData] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
 
   useEffect(() => {
@@ -81,6 +91,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       }
     } catch (error) {
       console.error("Failed to delete channel:", error);
+      alert('Failed to delete channel. Please try again.');
     }
   };
 
@@ -92,6 +103,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       await deleteDoc(doc(db, `channels/${selectedChannel.id}/videos`, videoId));
     } catch (error) {
       console.error("Failed to delete video:", error);
+      alert('Failed to delete video. Please try again.');
     }
   };
 
@@ -101,17 +113,16 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
 
     setIsProcessing(true);
     try {
-      // Parse video data - supports multiple formats
+      // Parse video data
       const lines = videoData.split('\n').filter(l => l.trim().length > 0);
-      const videos = [];
+      const videos: Omit<Video, 'id'>[] = [];
       
       for (const line of lines) {
-        // Try to parse different formats
         let youtubeId = '';
         let title = '';
         let duration = 0;
         
-        // Format 1: youtubeId|title|duration
+        // Format: youtubeId|title|duration
         if (line.includes('|')) {
           const parts = line.split('|').map(s => s.trim());
           if (parts.length >= 3) {
@@ -120,7 +131,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             duration = parseInt(parts[2], 10) || 0;
           }
         } 
-        // Format 2: youtubeId,title,duration
+        // Format: youtubeId,title,duration
         else if (line.includes(',')) {
           const parts = line.split(',').map(s => s.trim());
           if (parts.length >= 3) {
@@ -129,7 +140,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             duration = parseInt(parts[2], 10) || 0;
           }
         }
-        // Format 3: Just youtubeId (we'll need to fetch title/duration)
+        // Format: Just youtubeId
         else {
           youtubeId = line.trim();
           title = `Video ${youtubeId}`;
@@ -141,6 +152,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             youtubeId,
             title,
             duration,
+            order: videos.length,
           });
         }
       }
@@ -151,9 +163,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       }
       
       // Create channel document
-      const channelData = {
+      const channelData: Omit<Channel, 'id'> = {
         name: channelName,
-        description: channelDesc,
+        description: channelDesc || undefined,
         startTime: Date.now(),
         createdAt: Date.now(),
         type: 'synchronized',
@@ -166,11 +178,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       videos.forEach((video, index) => {
         const videoRef = doc(collection(db, `channels/${channelRef.id}/videos`));
         batch.set(videoRef, {
-          youtubeId: video.youtubeId,
-          title: video.title,
-          duration: video.duration,
+          ...video,
           order: index,
-          createdAt: Date.now(),
         });
       });
       
@@ -197,7 +206,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     setIsProcessing(true);
     try {
       const lines = videoData.split('\n').filter(l => l.trim().length > 0);
-      const videos = [];
+      const videos: Omit<Video, 'id'>[] = [];
       
       for (const line of lines) {
         let youtubeId = '';
@@ -225,7 +234,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         }
         
         if (youtubeId) {
-          videos.push({ youtubeId, title, duration });
+          videos.push({
+            youtubeId,
+            title,
+            duration,
+            order: channelVideos.length + videos.length,
+          });
         }
       }
       
@@ -235,17 +249,10 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       }
       
       const batch = writeBatch(db);
-      const currentOrder = channelVideos.length;
       
-      videos.forEach((video, index) => {
+      videos.forEach((video) => {
         const videoRef = doc(collection(db, `channels/${selectedChannel.id}/videos`));
-        batch.set(videoRef, {
-          youtubeId: video.youtubeId,
-          title: video.title,
-          duration: video.duration,
-          order: currentOrder + index,
-          createdAt: Date.now(),
-        });
+        batch.set(videoRef, video);
       });
       
       await batch.commit();
@@ -270,10 +277,10 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         title: video.title,
         duration: video.duration,
         order: video.order,
-        updatedAt: Date.now(),
-      }, { merge: true });
+      });
       
       setEditingVideo(null);
+      alert('Video updated successfully!');
     } catch (error) {
       console.error("Failed to update video:", error);
       alert('Failed to update video. Please try again.');
@@ -282,6 +289,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
 
   const generateVideoLink = (youtubeId: string) => {
     return `https://www.youtube.com/watch?v=${youtubeId}`;
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -300,7 +313,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         <div className="flex p-1 bg-zinc-800 rounded-lg mb-6">
           <button
             onClick={() => setActiveTab('create')}
-            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${activeTab === 'create' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'create' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
           >
             <Plus className="w-4 h-4" />
             Create Channel
@@ -310,7 +325,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               setActiveTab('manage');
               setSelectedChannel(null);
             }}
-            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${activeTab === 'manage' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'manage' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
           >
             <Settings className="w-4 h-4" />
             Manage Channels ({channels.length})
@@ -320,9 +337,11 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               setActiveTab('videos');
               setSelectedChannel(null);
             }}
-            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${activeTab === 'videos' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'videos' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
           >
-            <Video className="w-4 h-4" />
+            <VideoIcon className="w-4 h-4" />
             Manage Videos
           </button>
         </div>
@@ -339,7 +358,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                 required
               />
               <textarea
-                placeholder="Description"
+                placeholder="Description (optional)"
                 value={channelDesc}
                 onChange={(e) => setChannelDesc(e.target.value)}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-orange-500 h-20"
@@ -354,7 +373,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                       <p className="font-bold mb-1">Supported Formats:</p>
                       <p className="font-mono text-orange-500">youtubeId | title | duration</p>
                       <p className="text-xs mt-1">Example: <span className="text-white">dQw4w9WgXcQ | Rick Astley | 212</span></p>
-                      <p className="text-xs mt-2">One video per line. Duration in seconds.</p>
+                      <p className="text-xs mt-1">One video per line. Duration in seconds.</p>
                     </div>
                   </div>
                 </div>
@@ -389,7 +408,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         )}
 
         {activeTab === 'manage' && (
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
             {channels.length === 0 ? (
               <div className="text-center py-12 text-zinc-600">
                 <p className="text-sm font-bold uppercase tracking-widest">No channels found</p>
@@ -442,7 +461,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               <>
                 <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl p-4">
                   <h3 className="font-bold text-white mb-2">{selectedChannel.name}</h3>
-                  <p className="text-sm text-zinc-400">{selectedChannel.description}</p>
+                  <p className="text-sm text-zinc-400">{selectedChannel.description || 'No description'}</p>
                 </div>
 
                 <form onSubmit={handleAddVideosToChannel} className="space-y-3">
@@ -535,8 +554,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                               </div>
                               <p className="text-sm text-white mt-1">{video.title}</p>
                               <p className="text-xs text-zinc-500">
-                                Duration: {Math.floor(video.duration / 60)}:{(video.duration % 60).toString().padStart(2, '0')} • 
-                                Order: {video.order}
+                                Duration: {formatDuration(video.duration)} • Order: {video.order}
                               </p>
                             </div>
                             <div className="flex gap-1">
