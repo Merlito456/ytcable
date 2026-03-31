@@ -10,8 +10,10 @@ import {
   Trash2, 
   Settings, 
   Info, 
-  Video as VideoIcon,  // Renamed to avoid conflict with Video type
-  Link 
+  Video as VideoIcon,
+  Link,
+  AlertCircle,
+  CheckCircle
 } from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/error-handler';
 import { Channel, Video } from '../types';
@@ -31,19 +33,50 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
 
   useEffect(() => {
     console.log("AdminPanel mounted");
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
+      
+      if (user) {
+        console.log("User authenticated:", user.email);
+        console.log("Email verified:", user.emailVerified);
+        
+        // Check if the user is admin based on email
+        const adminEmail = "rabanes.johncarlo4@gmail.com";
+        const isUserAdmin = user.email === adminEmail && user.emailVerified === true;
+        setIsAdmin(isUserAdmin);
+        
+        if (!isUserAdmin) {
+          setError(`You don't have admin permissions. Only ${adminEmail} with verified email can manage channels.`);
+        } else {
+          console.log("Admin access granted");
+          setError(null);
+        }
+      } else {
+        console.log("No user authenticated");
+        setIsAdmin(false);
+        setError("Please sign in to access admin features.");
+      }
     });
+    
     return () => unsubscribe();
   }, []);
 
   // Load channels for manage tab
   useEffect(() => {
     if (activeTab !== 'manage' && activeTab !== 'videos') return;
+    
+    if (!isAdmin) {
+      console.log("Not admin, skipping channel load");
+      return;
+    }
 
+    console.log("Loading channels...");
     const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const channelData = snapshot.docs.map(doc => ({
@@ -51,20 +84,24 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         ...doc.data()
       } as Channel));
       setChannels(channelData);
+      console.log("Channels loaded:", channelData.length);
     }, (error) => {
+      console.error("Error loading channels:", error);
       handleFirestoreError(error, OperationType.LIST, 'channels');
+      setError(`Failed to load channels: ${error.message}`);
     });
 
     return () => unsubscribe();
-  }, [activeTab]);
+  }, [activeTab, isAdmin]);
 
   // Load videos when a channel is selected
   useEffect(() => {
-    if (!selectedChannel) {
+    if (!selectedChannel || !isAdmin) {
       setChannelVideos([]);
       return;
     }
 
+    console.log("Loading videos for channel:", selectedChannel.id);
     const videosRef = collection(db, `channels/${selectedChannel.id}/videos`);
     const q = query(videosRef, orderBy('order', 'asc'));
     
@@ -74,44 +111,71 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         ...doc.data()
       } as Video));
       setChannelVideos(videosData);
+      console.log("Videos loaded:", videosData.length);
     }, (error) => {
       console.error("Failed to load videos:", error);
+      setError(`Failed to load videos: ${error.message}`);
     });
 
     return () => unsubscribe();
-  }, [selectedChannel]);
+  }, [selectedChannel, isAdmin]);
 
   const handleDeleteChannel = async (channelId: string) => {
+    if (!isAdmin) {
+      setError("You don't have permission to delete channels");
+      return;
+    }
+    
     if (!window.confirm('Are you sure you want to delete this channel and all its videos?')) return;
     
     try {
+      console.log("Deleting channel:", channelId);
       await deleteDoc(doc(db, 'channels', channelId));
+      setSuccess('Channel deleted successfully!');
       if (selectedChannel?.id === channelId) {
         setSelectedChannel(null);
       }
-    } catch (error) {
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (error: any) {
       console.error("Failed to delete channel:", error);
-      alert('Failed to delete channel. Please try again.');
+      setError(`Failed to delete channel: ${error.message}`);
+      setTimeout(() => setError(null), 5000);
     }
   };
 
   const handleDeleteVideo = async (videoId: string) => {
+    if (!isAdmin) {
+      setError("You don't have permission to delete videos");
+      return;
+    }
+    
     if (!selectedChannel) return;
     if (!window.confirm('Are you sure you want to delete this video?')) return;
     
     try {
+      console.log("Deleting video:", videoId);
       await deleteDoc(doc(db, `channels/${selectedChannel.id}/videos`, videoId));
-    } catch (error) {
+      setSuccess('Video deleted successfully!');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (error: any) {
       console.error("Failed to delete video:", error);
-      alert('Failed to delete video. Please try again.');
+      setError(`Failed to delete video: ${error.message}`);
+      setTimeout(() => setError(null), 5000);
     }
   };
 
   const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!channelName || !videoData) return;
+    
+    if (!isAdmin) {
+      setError('You must be logged in as admin to create channels');
+      return;
+    }
 
     setIsProcessing(true);
+    setError(null);
+    
     try {
       // Parse video data
       const lines = videoData.split('\n').filter(l => l.trim().length > 0);
@@ -158,42 +222,59 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       }
       
       if (videos.length === 0) {
-        alert('No valid videos found. Please check your format.');
+        setError('No valid videos found. Please check your format.');
+        setIsProcessing(false);
         return;
       }
       
-      // Create channel document
-      const channelData: Omit<Channel, 'id'> = {
+      console.log("Creating channel with", videos.length, "videos");
+      
+      // Create channel document with required fields
+      const channelData = {
         name: channelName,
-        description: channelDesc || undefined,
+        description: channelDesc || "",
         startTime: Date.now(),
         createdAt: Date.now(),
         type: 'synchronized',
       };
       
       const channelRef = await addDoc(collection(db, 'channels'), channelData);
+      console.log("Channel created with ID:", channelRef.id);
       
       // Create videos subcollection
       const batch = writeBatch(db);
       videos.forEach((video, index) => {
         const videoRef = doc(collection(db, `channels/${channelRef.id}/videos`));
         batch.set(videoRef, {
-          ...video,
+          youtubeId: video.youtubeId,
+          title: video.title,
+          duration: video.duration,
           order: index,
         });
       });
       
       await batch.commit();
+      console.log("Videos added to channel");
       
       // Reset form
       setChannelName('');
       setChannelDesc('');
       setVideoData('');
-      onClose();
+      setSuccess(`Channel "${channelName}" created successfully with ${videos.length} videos!`);
+      setTimeout(() => {
+        setSuccess(null);
+        onClose();
+      }, 2000);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to add channel:", error);
-      alert('Failed to create channel. Please try again.');
+      
+      // Provide more specific error messages
+      if (error.code === 'permission-denied') {
+        setError('Permission denied. Please make sure you are logged in as admin with verified email.');
+      } else {
+        setError(`Failed to create channel: ${error.message}`);
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -203,7 +284,14 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     e.preventDefault();
     if (!selectedChannel || !videoData) return;
     
+    if (!isAdmin) {
+      setError('You must be logged in as admin to add videos');
+      return;
+    }
+    
     setIsProcessing(true);
+    setError(null);
+    
     try {
       const lines = videoData.split('\n').filter(l => l.trim().length > 0);
       const videos: Omit<Video, 'id'>[] = [];
@@ -244,33 +332,52 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       }
       
       if (videos.length === 0) {
-        alert('No valid videos found. Please check your format.');
+        setError('No valid videos found. Please check your format.');
+        setIsProcessing(false);
         return;
       }
+      
+      console.log("Adding", videos.length, "videos to channel:", selectedChannel.id);
       
       const batch = writeBatch(db);
       
       videos.forEach((video) => {
         const videoRef = doc(collection(db, `channels/${selectedChannel.id}/videos`));
-        batch.set(videoRef, video);
+        batch.set(videoRef, {
+          youtubeId: video.youtubeId,
+          title: video.title,
+          duration: video.duration,
+          order: video.order,
+        });
       });
       
       await batch.commit();
       setVideoData('');
-      alert(`Successfully added ${videos.length} videos to ${selectedChannel.name}`);
+      setSuccess(`Successfully added ${videos.length} videos to ${selectedChannel.name}!`);
+      setTimeout(() => setSuccess(null), 3000);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to add videos:", error);
-      alert('Failed to add videos. Please try again.');
+      if (error.code === 'permission-denied') {
+        setError('Permission denied. Please make sure you are logged in as admin with verified email.');
+      } else {
+        setError(`Failed to add videos: ${error.message}`);
+      }
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleUpdateVideo = async (video: Video) => {
+    if (!isAdmin) {
+      setError("You don't have permission to update videos");
+      return;
+    }
+    
     if (!selectedChannel) return;
     
     try {
+      console.log("Updating video:", video.id);
       const videoRef = doc(db, `channels/${selectedChannel.id}/videos`, video.id);
       await setDoc(videoRef, {
         youtubeId: video.youtubeId,
@@ -280,10 +387,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       });
       
       setEditingVideo(null);
-      alert('Video updated successfully!');
-    } catch (error) {
+      setSuccess('Video updated successfully!');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (error: any) {
       console.error("Failed to update video:", error);
-      alert('Failed to update video. Please try again.');
+      setError(`Failed to update video: ${error.message}`);
+      setTimeout(() => setError(null), 5000);
     }
   };
 
@@ -297,6 +406,45 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // If not admin, show restricted view
+  if (!isAdmin) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-lg md:text-xl font-black text-white flex items-center gap-2 uppercase tracking-tight">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Access Denied
+            </h2>
+            <button onClick={onClose} className="text-zinc-500 hover:text-white p-2">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <div className="text-center py-8">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h3 className="text-white font-bold mb-2">Admin Access Required</h3>
+            <p className="text-zinc-400 text-sm">
+              {error || "You don't have permission to access the admin panel."}
+            </p>
+            {user && !user.emailVerified && (
+              <p className="text-orange-500 text-xs mt-4">
+                Please verify your email address to gain admin access.
+              </p>
+            )}
+          </div>
+          
+          <button
+            onClick={onClose}
+            className="w-full bg-orange-600 text-white font-bold py-2 rounded-lg hover:bg-orange-500 transition-all"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-4xl p-6 animate-in zoom-in-95 duration-200">
@@ -309,6 +457,28 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Error and Success Messages */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-sm flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/50 rounded-lg text-green-500 text-sm flex items-start gap-2">
+            <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>{success}</span>
+          </div>
+        )}
+
+        {/* Admin Info */}
+        {user && (
+          <div className="mb-4 p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg text-xs text-orange-400 flex items-center justify-between">
+            <span>Logged in as: {user.email}</span>
+            <span className="px-2 py-0.5 bg-orange-500/20 rounded">Admin ✓</span>
+          </div>
+        )}
 
         <div className="flex p-1 bg-zinc-800 rounded-lg mb-6">
           <button
@@ -346,6 +516,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </button>
         </div>
 
+        {/* Rest of the component remains the same as before */}
         {activeTab === 'create' && (
           <div className="space-y-4">
             <form onSubmit={handleAddChannel} className="space-y-4">
