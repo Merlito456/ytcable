@@ -4,6 +4,7 @@ export interface Channel {
   startTime: number;
   createdAt: number;
   description?: string;
+  type: 'synchronized';
 }
 
 export interface Video {

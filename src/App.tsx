@@ -52,6 +52,7 @@ export default function App() {
     if (!selectedChannel) return;
 
     setLoadingVideos(true);
+    
     const path = `channels/${selectedChannel.id}/videos`;
     const q = query(collection(db, path), orderBy('order', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -70,20 +71,52 @@ export default function App() {
   }, [selectedChannel]);
 
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [titleTaps, setTitleTaps] = useState(0);
+  const [lastClickTime, setLastClickTime] = useState(0);
 
-  const handleAdminAccess = async () => {
-    const password = window.prompt('Enter Admin Password:');
+  const handleAdminAccess = () => {
+    console.log("Opening password modal...");
+    setShowPasswordModal(true);
+  };
+
+  const handleSignIn = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Sign in failed:", error);
+      alert('Sign in failed. If you are using a custom domain, make sure to add it to Firebase Console > Authentication > Settings > Authorized domains.');
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setShowAdmin(false);
+    } catch (error) {
+      console.error("Sign out failed:", error);
+    }
+  };
+
+  const verifyPassword = async (password: string) => {
+    console.log("Verifying password...");
     if (password === '07141994') {
+      console.log("Password correct. Checking user email...");
+      setShowPasswordModal(false);
       if (user?.email === "rabanes.johncarlo4@gmail.com") {
+        console.log("User email matches admin. Opening panel.");
         setShowAdmin(true);
       } else {
+        console.log("User email mismatch or not logged in. Initiating Google Login...");
         try {
           const provider = new GoogleAuthProvider();
           const result = await signInWithPopup(auth, provider);
           if (result.user.email === "rabanes.johncarlo4@gmail.com") {
+            console.log("Google Login successful. Admin verified.");
             setShowAdmin(true);
           } else {
+            console.log("Google Login failed: Email not authorized.");
             alert('This account does not have administrator privileges.');
             await signOut(auth);
           }
@@ -91,14 +124,32 @@ export default function App() {
           console.error("Admin login failed:", error);
         }
       }
-    } else if (password !== null) {
+    } else {
+      console.log("Incorrect password entered.");
       alert('Incorrect password');
     }
   };
 
   useEffect(() => {
+    console.log("YouTube Cable TV initialized. Path:", window.location.pathname);
+    
+    const checkPath = () => {
+      const path = window.location.pathname.toLowerCase();
+      if (path.includes('admin')) {
+        console.log("Admin path detected, opening password modal...");
+        setShowPasswordModal(true);
+      }
+    };
+
+    checkPath();
+    window.addEventListener('popstate', checkPath);
+    return () => window.removeEventListener('popstate', checkPath);
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'Z') {
+        console.log("Admin shortcut triggered");
         handleAdminAccess();
       }
     };
@@ -106,21 +157,19 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [user]);
 
-  const handleTitleClick = (e: React.MouseEvent | React.TouchEvent) => {
-    // Detect if it's a touch event to use the 5-tap threshold, otherwise use 10 for PC
-    const isTouch = e.nativeEvent instanceof TouchEvent;
-    const threshold = isTouch ? 5 : 10;
+  const handleTitleClick = () => {
+    const now = Date.now();
+    const newTaps = (now - lastClickTime > 2000) ? 1 : titleTaps + 1;
     
-    const newTaps = titleTaps + 1;
-    if (newTaps >= threshold) {
+    console.log(`Title click detected. Taps: ${newTaps}/10`);
+    
+    if (newTaps >= 10) {
       handleAdminAccess();
       setTitleTaps(0);
     } else {
       setTitleTaps(newTaps);
-      // Reset taps after 2 seconds of inactivity
-      const timeoutId = setTimeout(() => setTitleTaps(0), 2000);
-      return () => clearTimeout(timeoutId);
     }
+    setLastClickTime(now);
   };
 
   return (
@@ -175,7 +224,41 @@ export default function App() {
             <nav className="hidden sm:flex items-center gap-4 md:gap-8">
               <button className="text-sm md:text-lg font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors">Search</button>
               <button className="text-sm md:text-lg font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors">Guide</button>
+              {user?.email === "rabanes.johncarlo4@gmail.com" && (
+                <button 
+                  onClick={() => setShowAdmin(true)}
+                  className="text-sm md:text-lg font-black uppercase tracking-widest text-orange-500 hover:text-orange-400 transition-colors"
+                >
+                  Admin
+                </button>
+              )}
             </nav>
+
+            <div className="flex items-center gap-3 pointer-events-auto">
+              {user ? (
+                <div className="flex items-center gap-3">
+                  <div className="hidden md:block text-right">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Logged in as</p>
+                    <p className="text-xs font-bold text-white truncate max-w-[120px]">{user.displayName || user.email}</p>
+                  </div>
+                  <button 
+                    onClick={handleSignOut}
+                    className="w-10 h-10 md:w-12 md:h-12 bg-zinc-800 rounded-full flex items-center justify-center hover:bg-zinc-700 transition-colors group"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-5 h-5 md:w-6 md:h-6 text-white/40 group-hover:text-white" />
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={handleSignIn}
+                  className="flex items-center gap-2 px-4 py-2 md:px-6 md:py-3 bg-zinc-800 rounded-xl font-black uppercase tracking-widest text-[10px] md:text-xs hover:bg-zinc-700 transition-colors"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Sign In</span>
+                </button>
+              )}
+            </div>
           </div>
         </header>
 
@@ -212,6 +295,53 @@ export default function App() {
       </motion.div>
 
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      
+      {/* Password Modal */}
+      <AnimatePresence>
+        {showPasswordModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-zinc-900 border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl"
+            >
+              <h2 className="text-2xl font-black uppercase tracking-widest mb-6 text-center">Admin Access</h2>
+              <input
+                type="password"
+                autoFocus
+                placeholder="Enter Password"
+                className="w-full bg-black border border-white/10 rounded-xl px-6 py-4 text-xl font-bold focus:outline-none focus:border-orange-500 transition-colors mb-6 text-center"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    verifyPassword((e.target as HTMLInputElement).value);
+                  }
+                  if (e.key === 'Escape') {
+                    setShowPasswordModal(false);
+                  }
+                }}
+              />
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setShowPasswordModal(false)}
+                  className="flex-1 px-6 py-3 rounded-xl font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const input = document.querySelector('input[type="password"]') as HTMLInputElement;
+                    verifyPassword(input.value);
+                  }}
+                  className="flex-1 px-6 py-3 bg-orange-600 rounded-xl font-bold uppercase tracking-widest hover:bg-orange-500 transition-colors"
+                >
+                  Verify
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
