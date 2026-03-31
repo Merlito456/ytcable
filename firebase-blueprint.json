@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "Channel": {
+      "title": "Channel",
+      "description": "A synchronized YouTube channel",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the channel" },
+        "description": { "type": "string", "description": "The description of the channel" },
+        "startTime": { "type": "number", "description": "The timestamp when the channel started its first video" },
+        "createdAt": { "type": "number", "description": "The timestamp when the channel was created" }
+      },
+      "required": ["name", "startTime", "createdAt"]
+    },
+    "Video": {
+      "title": "Video",
+      "description": "A video in a channel's playlist",
+      "type": "object",
+      "properties": {
+        "youtubeId": { "type": "string", "description": "The YouTube video ID" },
+        "title": { "type": "string", "description": "The title of the video" },
+        "duration": { "type": "number", "description": "The duration of the video in seconds" },
+        "order": { "type": "number", "description": "The order of the video in the playlist" }
+      },
+      "required": ["youtubeId", "title", "duration", "order"]
+    }
+  },
+  "firestore": {
+    "/channels/{channelId}": {
+      "schema": "Channel",
+      "description": "The collection of channels"
+    },
+    "/channels/{channelId}/videos/{videoId}": {
+      "schema": "Video",
+      "description": "The subcollection of videos for a channel"
+    }
+  }
+}

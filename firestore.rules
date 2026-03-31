@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: channels
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - description: string (optional)
+    //   - startTime: number (required)
+    //   - createdAt: number (required)
+    //
+    // Subcollection: channels/{channelId}/videos
+    // Document ID: auto-generated
+    // Fields:
+    //   - youtubeId: string (required)
+    //   - title: string (required)
+    //   - duration: number (required)
+    //   - order: number (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (request.auth.token.email == "rabanes.johncarlo4@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isValidChannel(data) {
+      return data.keys().hasAll(['name', 'startTime', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.startTime is number &&
+             data.createdAt is number;
+    }
+
+    function isValidVideo(data) {
+      return data.keys().hasAll(['youtubeId', 'title', 'duration', 'order']) &&
+             data.youtubeId is string && data.youtubeId.size() > 0 && data.youtubeId.size() < 50 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.duration is number && data.duration > 0 &&
+             data.order is number;
+    }
+
+    // Rules
+    match /channels/{channelId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidChannel(request.resource.data);
+      allow update: if isAdmin() && isValidChannel(request.resource.data);
+      allow delete: if isAdmin();
+
+      match /videos/{videoId} {
+        allow read: if true;
+        allow create: if isAdmin() && isValidVideo(request.resource.data);
+        allow update: if isAdmin() && isValidVideo(request.resource.data);
+        allow delete: if isAdmin();
+      }
+    }
+    
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
