@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, doc, writeBatch, onSnapshot, query, orderBy, deleteDoc, setDoc, getDocs } from 'firebase/firestore';
-import { onAuthStateChanged, User as FirebaseUser, sendEmailVerification } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser, sendEmailVerification, signOut } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import { 
   Plus, 
@@ -16,7 +16,8 @@ import {
   CheckCircle,
   RefreshCw,
   Youtube,
-  Mail
+  Mail,
+  LogOut
 } from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/error-handler';
 import { Channel, Video } from '../types';
@@ -45,6 +46,20 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [fetchingDurations, setFetchingDurations] = useState(false);
   const [apiKeyValid, setApiKeyValid] = useState<boolean>(true);
 
+  // Sign out function
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setSuccess('Signed out successfully');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } catch (error) {
+      console.error('Sign out error:', error);
+      setError('Failed to sign out');
+    }
+  };
+
   // Check YouTube API key on mount
   useEffect(() => {
     if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY_HERE') {
@@ -57,7 +72,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   }, []);
 
-  // Check admin status - MODIFIED: removed emailVerified requirement
+  // Check admin status
   useEffect(() => {
     console.log("AdminPanel mounted");
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -67,9 +82,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         console.log("User authenticated:", user.email);
         console.log("Email verified:", user.emailVerified);
         
-        // Check if the user is admin based on email ONLY (don't require verification)
+        // Check if the user is admin based on email ONLY
         const adminEmail = "rabanes.johncarlo4@gmail.com";
-        const isUserAdmin = user.email === adminEmail; // Removed emailVerified check
+        const isUserAdmin = user.email === adminEmail;
         setIsAdmin(isUserAdmin);
         
         if (!isUserAdmin) {
@@ -571,7 +586,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // If not admin, show restricted view with option to send verification
+  // If not admin, show restricted view
   if (!isAdmin) {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -597,14 +612,31 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                 <p className="text-zinc-500 text-xs mb-2">
                   Logged in as: <span className="text-white">{user.email}</span>
                 </p>
-                <button
-                  onClick={sendVerificationEmail}
-                  className="bg-orange-600 text-white text-xs px-3 py-1 rounded hover:bg-orange-500 flex items-center gap-2 mx-auto"
-                >
-                  <Mail className="w-3 h-3" />
-                  Send Verification Email
-                </button>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={sendVerificationEmail}
+                    className="bg-orange-600 text-white text-xs px-3 py-1 rounded hover:bg-orange-500 flex items-center gap-2"
+                  >
+                    <Mail className="w-3 h-3" />
+                    Send Verification
+                  </button>
+                  <button
+                    onClick={handleSignOut}
+                    className="bg-red-600 text-white text-xs px-3 py-1 rounded hover:bg-red-500 flex items-center gap-2"
+                  >
+                    <LogOut className="w-3 h-3" />
+                    Sign Out
+                  </button>
+                </div>
               </div>
+            )}
+            {!user && (
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 bg-orange-600 text-white text-xs px-3 py-1 rounded hover:bg-orange-500"
+              >
+                Sign In
+              </button>
             )}
           </div>
           
@@ -619,20 +651,27 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     );
   }
 
-  // Rest of the component remains the same...
+  // Admin view
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-4xl p-6 animate-in zoom-in-95 duration-200">
-        {/* ... rest of your JSX remains exactly the same ... */}
-        {/* Keep all the existing JSX from your current return statement */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg md:text-xl font-black text-white flex items-center gap-2 uppercase tracking-tight">
             <Settings className="w-5 h-5 text-orange-500" />
             Admin Dashboard
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white p-2">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSignOut}
+              className="text-zinc-500 hover:text-red-500 p-2 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+            <button onClick={onClose} className="text-zinc-500 hover:text-white p-2">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* API Key Status */}
@@ -665,7 +704,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </div>
         )}
 
-        {/* Tab buttons and rest of content - keep exactly as in your current code */}
+        {/* Tab buttons */}
         <div className="flex p-1 bg-zinc-800 rounded-lg mb-6">
           <button
             onClick={() => setActiveTab('create')}
@@ -702,9 +741,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </button>
         </div>
 
-        {/* The rest of your tabs content remains exactly the same */}
+        {/* Create Channel Tab */}
         {activeTab === 'create' && (
-          // ... keep your existing create tab content
           <div className="space-y-4">
             <form onSubmit={handleAddChannel} className="space-y-4">
               <input
@@ -766,6 +804,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </div>
         )}
 
+        {/* Manage Channels Tab */}
         {activeTab === 'manage' && (
           <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
             {channels.length === 0 ? (
@@ -797,6 +836,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </div>
         )}
 
+        {/* Manage Videos Tab */}
         {activeTab === 'videos' && (
           <div className="space-y-4">
             <div className="space-y-2">
