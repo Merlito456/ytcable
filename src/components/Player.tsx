@@ -67,20 +67,18 @@ export function Player({ channel, videos }: PlayerProps) {
     setSkipCountdown(0);
   };
 
-  // Handle mute/unmute with proper YouTube API calls - FIXED
+  // Handle mute/unmute
   const toggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent event from bubbling
+    e.stopPropagation();
     console.log('Toggle mute clicked, current state:', isMuted);
     
     if (playerRef.current) {
       try {
         if (isMuted) {
-          // Unmute
           playerRef.current.unMute();
           setIsMuted(false);
           console.log('Unmuted successfully');
         } else {
-          // Mute
           playerRef.current.mute();
           setIsMuted(true);
           console.log('Muted successfully');
@@ -88,8 +86,6 @@ export function Player({ channel, videos }: PlayerProps) {
       } catch (err) {
         console.error('Error toggling mute:', err);
       }
-    } else {
-      console.warn('Player not ready yet');
     }
   };
 
@@ -226,7 +222,6 @@ export function Player({ channel, videos }: PlayerProps) {
         event.target.seekTo(playback.offset, true);
         event.target.playVideo();
         
-        // Apply initial mute state
         if (isMuted) {
           event.target.mute();
         } else {
@@ -248,7 +243,6 @@ export function Player({ channel, videos }: PlayerProps) {
           event.target.seekTo(playback.offset, true);
         }
         
-        // Ensure mute state is correct after playback starts
         if (isMuted !== event.target.isMuted()) {
           if (isMuted) {
             event.target.mute();
@@ -310,7 +304,7 @@ export function Player({ channel, videos }: PlayerProps) {
   // Show error state with skip option
   if (error && skippingVideo) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center text-white">
+      <div className="fixed inset-0 bg-black flex items-center justify-center text-white z-50">
         <div className="flex flex-col items-center gap-4 max-w-md text-center p-6">
           <AlertCircle className="w-16 h-16 text-orange-500 animate-pulse" />
           <p className="text-lg font-bold text-white">Video Unavailable</p>
@@ -333,7 +327,7 @@ export function Player({ channel, videos }: PlayerProps) {
 
   if (error && !skippingVideo) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center text-white">
+      <div className="fixed inset-0 bg-black flex items-center justify-center text-white z-50">
         <div className="flex flex-col items-center gap-4 max-w-md text-center p-6">
           <AlertCircle className="w-16 h-16 text-orange-500" />
           <p className="text-lg font-bold text-white">Channel Error</p>
@@ -355,7 +349,7 @@ export function Player({ channel, videos }: PlayerProps) {
   // Show loading state
   if (!playback || !playback.currentVideo || skippingVideo) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center text-white">
+      <div className="fixed inset-0 bg-black flex items-center justify-center text-white z-50">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm font-black uppercase tracking-widest text-white/40">
@@ -386,7 +380,7 @@ export function Player({ channel, videos }: PlayerProps) {
               modestbranding: 1,
               rel: 0,
               showinfo: 0,
-              mute: 1, // Start muted for autoplay
+              mute: 1,
               iv_load_policy: 3,
               autohide: 1
             },
@@ -442,11 +436,11 @@ export function Player({ channel, videos }: PlayerProps) {
         </div>
       </div>
 
-      {/* Control Buttons - FIXED with stopPropagation */}
-      <div className="absolute top-6 right-6 z-50 flex gap-3">
+      {/* Control Buttons - HIGHEST Z-INDEX */}
+      <div className="fixed top-6 right-6 z-[100] flex gap-3">
         <button
           onClick={toggleChannelList}
-          className="bg-black/60 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/10 hover:scale-110 active:scale-95"
+          className="bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 hover:scale-110 active:scale-95 shadow-lg"
           title="Channel List"
         >
           <List className="w-5 h-5" />
@@ -454,7 +448,7 @@ export function Player({ channel, videos }: PlayerProps) {
         
         <button
           onClick={toggleMute}
-          className="bg-black/60 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/10 hover:scale-110 active:scale-95"
+          className="bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 hover:scale-110 active:scale-95 shadow-lg"
           title={isMuted ? "Unmute" : "Mute"}
         >
           {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
@@ -462,21 +456,21 @@ export function Player({ channel, videos }: PlayerProps) {
 
         <button
           onClick={manualSkip}
-          className="bg-black/60 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/10 hover:scale-110 active:scale-95"
+          className="bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 hover:scale-110 active:scale-95 shadow-lg"
           title="Skip to next video"
         >
           <SkipForward className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Channel List */}
+      {/* Channel List Sidebar */}
       {showChannelList && (
         <>
           <div 
-            className="fixed inset-0 bg-black/40 z-50 transition-opacity"
+            className="fixed inset-0 bg-black/60 z-[60] transition-opacity"
             onClick={toggleChannelList}
           />
-          <div className="fixed bottom-0 left-0 right-0 md:left-auto md:right-0 md:top-0 md:w-1/2 bg-black/95 backdrop-blur-xl border-t md:border-l border-white/10 z-50 shadow-2xl animate-in slide-in-from-bottom md:slide-in-from-right duration-300">
+          <div className="fixed top-0 right-0 bottom-0 w-80 md:w-96 bg-black/95 backdrop-blur-xl border-l border-white/10 z-[70] shadow-2xl animate-in slide-in-from-right duration-300">
             <div className="flex items-center justify-between p-4 border-b border-white/10">
               <div className="flex items-center gap-2">
                 <Tv className="w-5 h-5 text-orange-500" />
@@ -490,7 +484,7 @@ export function Player({ channel, videos }: PlayerProps) {
               </button>
             </div>
             
-            <div className="overflow-y-auto h-[60vh] md:h-full pb-20">
+            <div className="overflow-y-auto h-full pb-20">
               <div className="p-4 space-y-4">
                 {/* Channel Details */}
                 <div className="bg-white/5 rounded-lg p-4">
@@ -576,7 +570,7 @@ export function Player({ channel, videos }: PlayerProps) {
         </>
       )}
 
-      {/* Click to show info overlay - now uses separate handler */}
+      {/* Click to show info overlay */}
       <div 
         className="absolute inset-0 cursor-pointer z-30"
         onClick={showInfoOverlay}
