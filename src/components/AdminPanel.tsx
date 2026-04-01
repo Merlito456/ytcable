@@ -45,6 +45,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [fetchingDurations, setFetchingDurations] = useState(false);
   const [apiKeyValid, setApiKeyValid] = useState<boolean>(true);
+  const [progressMessage, setProgressMessage] = useState<string>('');
 
   // Sign out function
   const handleSignOut = async () => {
@@ -198,10 +199,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       if (data.items && data.items.length > 0) {
         const duration = data.items[0].contentDetails.duration;
         const totalSeconds = parseDuration(duration);
-        console.log(`Fetched duration for ${youtubeId}: ${totalSeconds}s`);
         return totalSeconds;
       }
-      console.warn(`No video found for YouTube ID: ${youtubeId}`);
       return 0;
     } catch (error) {
       console.error(`Failed to fetch duration for ${youtubeId}:`, error);
@@ -209,85 +208,39 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
-  // Fetch durations for multiple videos in batch
-  const fetchVideosDurations = async (youtubeIds: string[]): Promise<Map<string, number>> => {
-    if (!apiKeyValid) return new Map();
+  // Test YouTube API connection
+  const testYouTubeAPI = async () => {
+    if (!apiKeyValid) {
+      setError('YouTube API key not configured');
+      return;
+    }
     
-    const durationMap = new Map<string, number>();
-    const uniqueIds = [...new Set(youtubeIds)];
-    const batchSize = 50;
-    
-    for (let i = 0; i < uniqueIds.length; i += batchSize) {
-      const batch = uniqueIds.slice(i, i + batchSize);
-      const idsParam = batch.join(',');
+    setSuccess('Testing YouTube API connection...');
+    try {
+      const testVideoId = 'dQw4w9WgXcQ';
+      const response = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${testVideoId}&key=${YOUTUBE_API_KEY}`
+      );
+      const data = await response.json();
       
-      try {
-        const response = await fetch(
-          `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${idsParam}&key=${YOUTUBE_API_KEY}`
-        );
-        const data = await response.json();
-        
-        if (data.items) {
-          data.items.forEach((item: any) => {
-            const totalSeconds = parseDuration(item.contentDetails.duration);
-            durationMap.set(item.id, totalSeconds);
-          });
-        }
-      } catch (error) {
-        console.error('Failed to fetch batch:', error);
+      if (data.error) {
+        setError(`YouTube API Error: ${data.error.message}`);
+        console.error('YouTube API Error:', data.error);
+      } else if (data.items && data.items.length > 0) {
+        const duration = data.items[0].contentDetails.duration;
+        const seconds = parseDuration(duration);
+        setSuccess(`YouTube API Working! Test video duration: ${seconds}s (${formatDuration(seconds)})`);
+      } else {
+        setError('YouTube API returned no results');
       }
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (error) {
+      setError(`Failed to connect to YouTube API: ${error}`);
+      console.error(error);
     }
-    
-    return durationMap;
   };
 
-  // Parse video line and optionally fetch duration
-  const parseVideoLine = async (line: string, fetchFromApi: boolean = false): Promise<{ youtubeId: string; title: string; duration: number } | null> => {
-    let youtubeId = '';
-    let title = '';
-    let duration = 0;
-    
-    if (line.includes('|')) {
-      const parts = line.split('|').map(s => s.trim());
-      if (parts.length >= 3) {
-        youtubeId = parts[0];
-        title = parts[1];
-        duration = parseInt(parts[2], 10);
-        if ((isNaN(duration) || duration <= 0) && fetchFromApi) {
-          duration = await fetchYouTubeDuration(youtubeId);
-        }
-      }
-    } 
-    else if (line.includes(',')) {
-      const parts = line.split(',').map(s => s.trim());
-      if (parts.length >= 3) {
-        youtubeId = parts[0];
-        title = parts[1];
-        duration = parseInt(parts[2], 10);
-        if ((isNaN(duration) || duration <= 0) && fetchFromApi) {
-          duration = await fetchYouTubeDuration(youtubeId);
-        }
-      }
-    }
-    else {
-      youtubeId = line.trim();
-      title = `Video ${youtubeId}`;
-      if (fetchFromApi) {
-        duration = await fetchYouTubeDuration(youtubeId);
-      }
-    }
-    
-    if (youtubeId) {
-      if (duration <= 0) {
-        duration = 300;
-        console.warn(`Using default duration (300s) for ${title}`);
-      }
-      return { youtubeId, title, duration };
-    }
-    return null;
-  };
-
-  // Fix video durations using YouTube API
+  // Fix video durations using YouTube API - WORKING VERSION
   const fixVideoDurations = async (channelId: string) => {
     if (!apiKeyValid) {
       setError('Cannot fix durations: YouTube API key not configured');
@@ -298,63 +251,92 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     
     setFetchingDurations(true);
     setError(null);
+    setProgressMessage('Starting...');
     
     try {
       const videosRef = collection(db, `channels/${channelId}/videos`);
       const snapshot = await getDocs(videosRef);
       
-      const videosToFix: { id: string; youtubeId: string; title: string }[] = [];
-      
-      snapshot.docs.forEach((doc) => {
-        const data = doc.data();
-        const duration = data.duration;
-        if (typeof duration !== 'number' || duration <= 0 || isNaN(duration)) {
-          videosToFix.push({
-            id: doc.id,
-            youtubeId: data.youtubeId,
-            title: data.title,
-          });
-        }
-      });
-      
-      if (videosToFix.length === 0) {
-        setSuccess('All videos already have valid durations!');
-        setTimeout(() => setSuccess(null), 3000);
+      if (snapshot.empty) {
+        setError('No videos found in this channel');
         setFetchingDurations(false);
         return;
       }
       
-      const youtubeIds = videosToFix.map(v => v.youtubeId);
-      const durationMap = await fetchVideosDurations(youtubeIds);
+      console.log(`Found ${snapshot.docs.length} videos`);
       
-      const batch = writeBatch(db);
-      let fixedCount = 0;
-      let failedCount = 0;
+      // Collect all videos
+      const allVideos: { id: string; youtubeId: string; title: string; oldDuration: any }[] = [];
       
-      videosToFix.forEach((video) => {
-        const realDuration = durationMap.get(video.youtubeId);
-        if (realDuration && realDuration > 0) {
-          const videoRef = doc(db, `channels/${channelId}/videos`, video.id);
-          batch.update(videoRef, { duration: realDuration });
-          fixedCount++;
-          console.log(`✓ Fixed ${video.title}: ${realDuration}s`);
-        } else {
-          failedCount++;
-          console.warn(`✗ Could not fetch duration for ${video.title} (${video.youtubeId})`);
-        }
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        allVideos.push({
+          id: doc.id,
+          youtubeId: data.youtubeId,
+          title: data.title,
+          oldDuration: data.duration,
+        });
       });
       
-      if (fixedCount > 0) {
-        await batch.commit();
-        setSuccess(`Successfully fixed ${fixedCount} videos with real durations from YouTube!${failedCount > 0 ? ` (${failedCount} failed to fetch)` : ''}`);
-      } else {
-        setError('Failed to fetch durations for videos. Check your YouTube API key and video IDs.');
+      setProgressMessage(`Processing ${allVideos.length} videos...`);
+      
+      // Process videos one by one to show progress
+      const batch = writeBatch(db);
+      let updatedCount = 0;
+      let failedCount = 0;
+      
+      for (let i = 0; i < allVideos.length; i++) {
+        const video = allVideos[i];
+        setProgressMessage(`Fetching duration for: ${video.title.substring(0, 50)}... (${i + 1}/${allVideos.length})`);
+        
+        try {
+          const realDuration = await fetchYouTubeDuration(video.youtubeId);
+          
+          if (realDuration > 0) {
+            const videoRef = doc(db, `channels/${channelId}/videos`, video.id);
+            batch.update(videoRef, { duration: Number(realDuration) });
+            updatedCount++;
+            console.log(`✓ "${video.title}": ${video.oldDuration} → ${realDuration}s`);
+          } else {
+            failedCount++;
+            console.warn(`✗ Failed for "${video.title}" (${video.youtubeId})`);
+          }
+        } catch (error) {
+          failedCount++;
+          console.error(`Error for ${video.title}:`, error);
+        }
+        
+        // Commit every 50 videos to avoid batch size limit
+        if ((i + 1) % 50 === 0 || i === allVideos.length - 1) {
+          await batch.commit();
+        }
       }
       
-      setTimeout(() => setSuccess(null), 3000);
+      if (updatedCount > 0) {
+        setSuccess(`✅ Successfully updated ${updatedCount} videos! ${failedCount > 0 ? `⚠️ ${failedCount} failed` : ''}`);
+        
+        // Refresh the video list
+        const updatedSnapshot = await getDocs(videosRef);
+        const updatedVideos = updatedSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            youtubeId: data.youtubeId,
+            title: data.title,
+            duration: typeof data.duration === 'number' ? data.duration : parseInt(data.duration, 10) || 0,
+            order: typeof data.order === 'number' ? data.order : parseInt(data.order, 10) || 0,
+          } as Video;
+        });
+        setChannelVideos(updatedVideos);
+      } else {
+        setError('Failed to fetch any durations. Check your YouTube API key and video IDs.');
+      }
+      
+      setProgressMessage('');
+      setTimeout(() => setSuccess(null), 5000);
     } catch (error) {
       console.error('Failed to fix videos:', error);
-      setError('Failed to fix videos. Check console for details.');
+      setError(`Failed to fix videos: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setFetchingDurations(false);
     }
@@ -402,6 +384,50 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
+  const parseVideoLine = async (line: string, fetchFromApi: boolean = false): Promise<{ youtubeId: string; title: string; duration: number } | null> => {
+    let youtubeId = '';
+    let title = '';
+    let duration = 0;
+    
+    if (line.includes('|')) {
+      const parts = line.split('|').map(s => s.trim());
+      if (parts.length >= 3) {
+        youtubeId = parts[0];
+        title = parts[1];
+        duration = parseInt(parts[2], 10);
+        if ((isNaN(duration) || duration <= 0) && fetchFromApi) {
+          duration = await fetchYouTubeDuration(youtubeId);
+        }
+      }
+    } 
+    else if (line.includes(',')) {
+      const parts = line.split(',').map(s => s.trim());
+      if (parts.length >= 3) {
+        youtubeId = parts[0];
+        title = parts[1];
+        duration = parseInt(parts[2], 10);
+        if ((isNaN(duration) || duration <= 0) && fetchFromApi) {
+          duration = await fetchYouTubeDuration(youtubeId);
+        }
+      }
+    }
+    else {
+      youtubeId = line.trim();
+      title = `Video ${youtubeId}`;
+      if (fetchFromApi) {
+        duration = await fetchYouTubeDuration(youtubeId);
+      }
+    }
+    
+    if (youtubeId) {
+      if (duration <= 0) {
+        duration = 300;
+      }
+      return { youtubeId, title, duration };
+    }
+    return null;
+  };
+
   const handleAddChannel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!channelName || !videoData) return;
@@ -433,8 +459,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         return;
       }
       
-      console.log("Creating channel with", videos.length, "videos");
-      
       const channelData = {
         name: channelName,
         description: channelDesc || "",
@@ -444,7 +468,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       };
       
       const channelRef = await addDoc(collection(db, 'channels'), channelData);
-      console.log("Channel created with ID:", channelRef.id);
       
       const batch = writeBatch(db);
       videos.forEach((video, index) => {
@@ -458,7 +481,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       });
       
       await batch.commit();
-      console.log("Videos added to channel");
       
       setChannelName('');
       setChannelDesc('');
@@ -511,8 +533,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         setIsProcessing(false);
         return;
       }
-      
-      console.log("Adding", videos.length, "videos to channel:", selectedChannel.id);
       
       const batch = writeBatch(db);
       
@@ -695,6 +715,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             <span>{success}</span>
           </div>
         )}
+        {progressMessage && fetchingDurations && (
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/50 rounded-lg text-blue-400 text-sm flex items-start gap-2">
+            <Loader2 className="w-4 h-4 mt-0.5 flex-shrink-0 animate-spin" />
+            <span>{progressMessage}</span>
+          </div>
+        )}
 
         {/* Admin Info */}
         {user && (
@@ -863,6 +889,17 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                   <p className="text-sm text-zinc-400">{selectedChannel.description || 'No description'}</p>
                 </div>
 
+                {/* Test YouTube API Button */}
+                <button
+                  onClick={testYouTubeAPI}
+                  disabled={!apiKeyValid}
+                  className="w-full bg-purple-600 text-white font-bold py-2 rounded-lg hover:bg-purple-500 transition-all flex items-center justify-center gap-2 text-sm mb-2 disabled:opacity-50"
+                >
+                  <Youtube className="w-4 h-4" />
+                  Test YouTube API Connection
+                </button>
+
+                {/* Fix Durations Button */}
                 <button
                   onClick={() => fixVideoDurations(selectedChannel.id)}
                   disabled={fetchingDurations || !apiKeyValid}
