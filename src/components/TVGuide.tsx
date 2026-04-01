@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db } from '../firebase';
 import { Channel, Video } from '../types';
 import { Search, Tv, Clock, X, Play, Info, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -17,7 +19,8 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [showInfo, setShowInfo] = useState(false);
-  const [selectedChannelVideos, setSelectedChannelVideos] = useState<Video[]>([]);
+  const [channelVideosMap, setChannelVideosMap] = useState<Map<string, Video[]>>(new Map());
+  const [loadingChannels, setLoadingChannels] = useState<Set<string>>(new Set());
 
   // Update current time every minute
   useEffect(() => {
@@ -27,14 +30,40 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     return () => clearInterval(timer);
   }, []);
 
-  // Load videos for selected channel
-  useEffect(() => {
-    if (selectedChannel) {
-      // In a real app, you'd fetch videos for the selected channel
-      // For now, we'll use the videos prop which is for the current channel
-      setSelectedChannelVideos(videos);
+  // Fetch videos for a specific channel
+  const fetchChannelVideos = async (channelId: string) => {
+    if (channelVideosMap.has(channelId)) return;
+    
+    setLoadingChannels(prev => new Set(prev).add(channelId));
+    
+    try {
+      const videosRef = collection(db, `channels/${channelId}/videos`);
+      const q = query(videosRef, orderBy('order', 'asc'));
+      const snapshot = await getDocs(q);
+      
+      const channelVideos: Video[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Video));
+      
+      setChannelVideosMap(prev => new Map(prev).set(channelId, channelVideos));
+    } catch (error) {
+      console.error(`Failed to fetch videos for channel ${channelId}:`, error);
+    } finally {
+      setLoadingChannels(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(channelId);
+        return newSet;
+      });
     }
-  }, [selectedChannel, videos]);
+  };
+
+  // Load videos for all channels
+  useEffect(() => {
+    allChannels.forEach(channel => {
+      fetchChannelVideos(channel.id);
+    });
+  }, [allChannels]);
 
   // Format duration to readable time
   const formatDuration = (seconds: number) => {
@@ -52,11 +81,12 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     return `${secs}s`;
   };
 
-  // Format time slot from video order
-  const getTimeSlot = (order: number, totalVideos: number) => {
+  // Get time slot based on video index
+  const getTimeSlot = (index: number, totalVideos: number) => {
     const startHour = 12; // Start at 12 PM
-    const slotDuration = 1; // 1 hour slots
-    const hour = (startHour + Math.floor(order / (totalVideos / 12))) % 24;
+    const totalSlots = 12; // 12 time slots (12pm to 11pm)
+    const slotIndex = Math.floor((index / totalVideos) * totalSlots);
+    const hour = (startHour + slotIndex) % 24;
     const ampm = hour >= 12 ? 'pm' : 'am';
     const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
     return `${displayHour}:00 ${ampm}`;
@@ -64,15 +94,14 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
 
   // Generate program data from actual videos
   const getChannelPrograms = (channel: Channel) => {
-    // For the selected channel, we need to fetch its videos
-    // This is a simplified version - in production, you'd fetch videos per channel
-    const channelVideos = channel.id === currentChannel.id ? videos : [];
+    const channelVideos = channelVideosMap.get(channel.id) || [];
     
     if (channelVideos.length === 0) {
-      // Return placeholder if no videos
+      // Return placeholder if still loading or no videos
+      const isLoading = loadingChannels.has(channel.id);
       return [{
-        title: `${channel.name} - Coming Soon`,
-        description: 'Content will be available shortly',
+        title: isLoading ? 'Loading videos...' : `${channel.name} - Coming Soon`,
+        description: isLoading ? 'Fetching video data...' : 'Content will be available shortly',
         duration: '0:00',
         time: '12:00 pm',
         isLive: false,
@@ -86,7 +115,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     // Generate programs based on actual videos
     return channelVideos.map((video, idx) => {
       const timeSlot = getTimeSlot(idx, channelVideos.length);
-      const isLive = idx === 0 && channel.id === currentChannel.id; // First video is "live"
+      const isLive = idx === 0 && channel.id === currentChannel.id;
       
       return {
         id: video.id,
@@ -222,7 +251,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
       <div className="pt-32 pb-6 h-full overflow-y-auto">
         <div className="px-4 md:px-6">
           {/* Time Header */}
-          <div className="flex border-b border-white/10">
+          <div className="flex border-b border-white/10 sticky top-0 bg-black z-10">
             <div className="w-32 md:w-48 flex-shrink-0" />
             <div className="flex-1 flex">
               {timeSlots.map((slot, idx) => (
@@ -241,6 +270,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
             {filteredChannels.map((channel) => {
               const programs = getChannelPrograms(channel);
               const isCurrent = currentChannel.id === channel.id;
+              const isLoading = loadingChannels.has(channel.id);
               
               return (
                 <div
@@ -260,17 +290,19 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                       </div>
                       <div>
                         <div className="font-bold text-white text-sm">{channel.name}</div>
-                        <div className="text-[10px] text-white/40">24/7 Live</div>
+                        <div className="text-[10px] text-white/40">
+                          {isLoading ? 'Loading...' : `${programs.length} videos`}
+                        </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Programs */}
-                  <div className="flex-1 flex">
+                  <div className="flex-1 flex overflow-x-auto">
                     {programs.map((program, idx) => (
                       <div
                         key={idx}
-                        className={`flex-1 p-2 border-l border-white/5 transition-all hover:bg-white/10 ${
+                        className={`min-w-[100px] flex-1 p-2 border-l border-white/5 transition-all hover:bg-white/10 ${
                           program.isLive ? 'bg-orange-500/5' : ''
                         }`}
                       >
@@ -332,7 +364,9 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                 </div>
                 <div>
                   <h3 className="text-white font-bold text-lg">{selectedChannel.name}</h3>
-                  <p className="text-white/40 text-xs">24/7 Live Channel</p>
+                  <p className="text-white/40 text-xs">
+                    {channelVideosMap.get(selectedChannel.id)?.length || 0} videos
+                  </p>
                 </div>
               </div>
               <button onClick={() => setShowInfo(false)} className="text-white/60 hover:text-white">
