@@ -14,8 +14,12 @@ export function Player({ channel, videos }: PlayerProps) {
   const [showChannelList, setShowChannelList] = useState(false);
   const [showInfo, setShowInfo] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [skippingVideo, setSkippingVideo] = useState<Video | null>(null);
+  const [skipCountdown, setSkipCountdown] = useState<number>(0);
+  const [playerReady, setPlayerReady] = useState(false);
   const playerRef = useRef<any>(null);
   const infoTimeoutRef = useRef<NodeJS.Timeout>();
+  const skipTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Auto-hide info overlay after 3 seconds
   useEffect(() => {
@@ -30,23 +34,128 @@ export function Player({ channel, videos }: PlayerProps) {
     };
   }, [showInfo]);
 
+  // Skip countdown timer
+  useEffect(() => {
+    if (skipCountdown > 0) {
+      skipTimeoutRef.current = setTimeout(() => {
+        setSkipCountdown(skipCountdown - 1);
+      }, 1000);
+    } else if (skipCountdown === 0 && skippingVideo) {
+      handleSkipVideo();
+    }
+    return () => {
+      if (skipTimeoutRef.current) clearTimeout(skipTimeoutRef.current);
+    };
+  }, [skipCountdown, skippingVideo]);
+
+  // Function to skip the current video and play next
+  const handleSkipVideo = () => {
+    if (!playback?.nextVideo || !videos.length) return;
+    
+    console.log(`Skipping video: ${playback.currentVideo?.title}`);
+    
+    const currentVideoIndex = videos.findIndex(v => v.id === playback.currentVideo?.id);
+    const nextVideoIndex = (currentVideoIndex + 1) % videos.length;
+    const nextVideo = videos[nextVideoIndex];
+    
+    setPlayback({
+      currentVideo: nextVideo,
+      offset: 0,
+      nextVideo: videos[(nextVideoIndex + 1) % videos.length],
+    });
+    
+    setSkippingVideo(null);
+    setSkipCountdown(0);
+  };
+
+  // Handle mute/unmute with proper YouTube API calls
+  const toggleMute = () => {
+    console.log('Toggle mute clicked, current state:', isMuted);
+    
+    if (playerRef.current) {
+      try {
+        if (isMuted) {
+          // Unmute
+          playerRef.current.unMute();
+          setIsMuted(false);
+          console.log('Unmuted successfully');
+        } else {
+          // Mute
+          playerRef.current.mute();
+          setIsMuted(true);
+          console.log('Muted successfully');
+        }
+      } catch (err) {
+        console.error('Error toggling mute:', err);
+      }
+    } else {
+      console.warn('Player not ready yet');
+    }
+  };
+
+  // Handle video errors
+  const onError: YouTubeProps['onError'] = (event) => {
+    const errorCode = event.data;
+    let errorMessage = '';
+    
+    switch (errorCode) {
+      case 2:
+        errorMessage = 'Invalid video ID';
+        break;
+      case 5:
+        errorMessage = 'Video not available (HTML5 player error)';
+        break;
+      case 100:
+        errorMessage = 'Video not found or removed';
+        break;
+      case 101:
+      case 150:
+        errorMessage = 'Video not available (embedding disabled)';
+        break;
+      default:
+        errorMessage = `Video error (code: ${errorCode})`;
+    }
+    
+    console.error(`YouTube Error: ${errorMessage}`, event);
+    
+    if (playback?.currentVideo && !skippingVideo) {
+      setSkippingVideo(playback.currentVideo);
+      setSkipCountdown(5);
+      setError(`Video unavailable: "${playback.currentVideo.title}". Skipping in 5 seconds...`);
+      
+      setTimeout(() => {
+        setError(null);
+      }, 5000);
+    }
+  };
+
+  // Manual skip button handler
+  const manualSkip = () => {
+    if (skippingVideo) {
+      handleSkipVideo();
+    } else if (playback?.nextVideo) {
+      setSkippingVideo(playback.currentVideo);
+      handleSkipVideo();
+    }
+  };
+
   useEffect(() => {
     console.log('Player mounted with videos:', videos.length);
     console.log('Channel:', channel);
     
     if (!videos || videos.length === 0) {
-      console.log('No videos available');
       setError('No videos found in this channel');
       return;
     }
 
-    // Check if videos have valid durations
     const invalidVideos = videos.filter(v => !v.duration || v.duration <= 0);
     if (invalidVideos.length > 0) {
       console.warn('Videos with invalid durations:', invalidVideos);
     }
 
     const calculatePlayback = () => {
+      if (skippingVideo) return;
+      
       try {
         const now = Date.now();
         const elapsedMs = now - channel.startTime;
@@ -55,7 +164,6 @@ export function Player({ channel, videos }: PlayerProps) {
         const totalDuration = videos.reduce((acc, v) => acc + (v.duration || 0), 0);
         
         if (totalDuration === 0) {
-          console.error('Total duration is 0');
           setError('Invalid video durations');
           return;
         }
@@ -81,11 +189,9 @@ export function Player({ channel, videos }: PlayerProps) {
         }
 
         if (currentVideo) {
-          console.log('Current video:', currentVideo.title, 'offset:', offset);
           setPlayback({ currentVideo, offset, nextVideo });
           setError(null);
         } else {
-          console.error('No current video found');
           setError('Failed to determine current video');
         }
       } catch (err) {
@@ -97,19 +203,23 @@ export function Player({ channel, videos }: PlayerProps) {
     calculatePlayback();
     const interval = setInterval(calculatePlayback, 1000);
     return () => clearInterval(interval);
-  }, [channel, videos]);
+  }, [channel, videos, skippingVideo]);
 
   const onReady: YouTubeProps['onReady'] = (event) => {
     playerRef.current = event.target;
-    if (playback) {
+    setPlayerReady(true);
+    console.log('YouTube player ready');
+    
+    if (playback && !skippingVideo) {
       try {
         event.target.seekTo(playback.offset, true);
         event.target.playVideo();
         
-        if (!isMuted) {
-          event.target.unMute();
-        } else {
+        // Apply initial mute state
+        if (isMuted) {
           event.target.mute();
+        } else {
+          event.target.unMute();
         }
       } catch (err) {
         console.error('Error in onReady:', err);
@@ -117,34 +227,32 @@ export function Player({ channel, videos }: PlayerProps) {
     }
   };
 
-  const toggleMute = () => {
-    if (playerRef.current) {
-      try {
-        if (isMuted) {
-          playerRef.current.unMute();
-          setIsMuted(false);
-        } else {
-          playerRef.current.mute();
-          setIsMuted(true);
-        }
-      } catch (err) {
-        console.error('Error toggling mute:', err);
-      }
-    }
-  };
-
   const onStateChange: YouTubeProps['onStateChange'] = (event) => {
     try {
-      if (event.data === YouTube.PlayerState.PLAYING && playback) {
+      if (event.data === YouTube.PlayerState.PLAYING && playback && !skippingVideo) {
         const currentTime = event.target.getCurrentTime();
         const diff = Math.abs(currentTime - playback.offset);
         if (diff > 2) {
+          console.log('Syncing video, diff:', diff);
           event.target.seekTo(playback.offset, true);
+        }
+        
+        // Ensure mute state is correct after playback starts
+        if (isMuted !== event.target.isMuted()) {
+          if (isMuted) {
+            event.target.mute();
+          } else {
+            event.target.unMute();
+          }
         }
       }
       
-      if (event.data === YouTube.PlayerState.PAUSED) {
+      if (event.data === YouTube.PlayerState.PAUSED && !skippingVideo) {
         event.target.playVideo();
+      }
+      
+      if (event.data === YouTube.PlayerState.ENDED && !skippingVideo) {
+        console.log('Video ended naturally');
       }
     } catch (err) {
       console.error('Error in onStateChange:', err);
@@ -153,13 +261,18 @@ export function Player({ channel, videos }: PlayerProps) {
 
   const formatDuration = (seconds: number) => {
     if (!seconds || seconds <= 0) return '0:00';
-    const mins = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getCurrentProgress = () => {
-    if (!playback?.currentVideo || !videos.length) return 0;
+    if (!playback?.currentVideo || !videos.length || skippingVideo) return 0;
     
     try {
       const now = Date.now();
@@ -183,8 +296,31 @@ export function Player({ channel, videos }: PlayerProps) {
     return 0;
   };
 
-  // Show error state
-  if (error) {
+  // Show error state with skip option
+  if (error && skippingVideo) {
+    return (
+      <div className="fixed inset-0 bg-black flex items-center justify-center text-white">
+        <div className="flex flex-col items-center gap-4 max-w-md text-center p-6">
+          <AlertCircle className="w-16 h-16 text-orange-500 animate-pulse" />
+          <p className="text-lg font-bold text-white">Video Unavailable</p>
+          <p className="text-sm text-white/60">{error}</p>
+          <div className="flex items-center gap-2 text-orange-500">
+            <SkipForward className="w-4 h-4 animate-pulse" />
+            <span className="text-sm">Skipping in {skipCountdown} seconds...</span>
+          </div>
+          <button
+            onClick={manualSkip}
+            className="mt-4 px-6 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-500 transition-colors flex items-center gap-2"
+          >
+            <SkipForward className="w-4 h-4" />
+            Skip Now
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !skippingVideo) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center text-white">
         <div className="flex flex-col items-center gap-4 max-w-md text-center p-6">
@@ -206,13 +342,13 @@ export function Player({ channel, videos }: PlayerProps) {
   }
 
   // Show loading state
-  if (!playback || !playback.currentVideo) {
+  if (!playback || !playback.currentVideo || skippingVideo) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center text-white">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm font-black uppercase tracking-widest text-white/40">
-            Tuning Channel...
+            {skippingVideo ? 'Skipping to next video...' : 'Tuning Channel...'}
           </p>
           <p className="text-xs text-white/20">
             {videos.length} video{videos.length !== 1 ? 's' : ''} available
@@ -239,18 +375,19 @@ export function Player({ channel, videos }: PlayerProps) {
               modestbranding: 1,
               rel: 0,
               showinfo: 0,
-              mute: 1,
+              mute: 1, // Start muted for autoplay
               iv_load_policy: 3,
               autohide: 1
             },
           }}
           onReady={onReady}
           onStateChange={onStateChange}
+          onError={onError}
           className="w-full h-full"
         />
       </div>
 
-      {/* Channel Name Overlay (Top Left) - More Compact */}
+      {/* Channel Name Overlay (Top Left) */}
       <div className={`absolute top-6 left-6 z-40 transition-all duration-300 ${showInfo ? 'opacity-100' : 'opacity-0'}`}>
         <div className="bg-black/60 backdrop-blur-md rounded-xl px-4 py-2 border border-white/10">
           <div className="flex items-center gap-2">
@@ -267,7 +404,7 @@ export function Player({ channel, videos }: PlayerProps) {
         </div>
       </div>
 
-      {/* Now Playing Overlay (Bottom Left) - More Compact */}
+      {/* Now Playing Overlay (Bottom Left) */}
       <div className={`absolute bottom-6 left-6 right-6 md:right-auto z-40 transition-all duration-300 ${showInfo ? 'opacity-100' : 'opacity-0'}`}>
         <div className="bg-black/60 backdrop-blur-md rounded-xl p-3 border border-white/10 max-w-md">
           <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">
@@ -294,26 +431,34 @@ export function Player({ channel, videos }: PlayerProps) {
         </div>
       </div>
 
-      {/* Control Buttons - More Compact */}
-      <div className="absolute top-6 right-6 z-50 flex gap-2">
+      {/* Control Buttons - Enhanced with better click handling */}
+      <div className="absolute top-6 right-6 z-50 flex gap-3">
         <button
           onClick={() => setShowChannelList(!showChannelList)}
-          className="bg-black/60 backdrop-blur-md text-white p-2 rounded-lg hover:bg-orange-600 transition-all border border-white/10"
+          className="bg-black/60 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/10 hover:scale-110 active:scale-95"
           title="Channel List"
         >
-          <List className="w-4 h-4" />
+          <List className="w-5 h-5" />
         </button>
         
         <button
           onClick={toggleMute}
-          className="bg-black/60 backdrop-blur-md text-white p-2 rounded-lg hover:bg-orange-600 transition-all border border-white/10"
+          className="bg-black/60 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/10 hover:scale-110 active:scale-95"
           title={isMuted ? "Unmute" : "Mute"}
         >
-          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+        </button>
+
+        <button
+          onClick={manualSkip}
+          className="bg-black/60 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/10 hover:scale-110 active:scale-95"
+          title="Skip to next video"
+        >
+          <SkipForward className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Channel List - Half Screen Width, Bottom Position */}
+      {/* Channel List */}
       {showChannelList && (
         <>
           <div 

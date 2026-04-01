@@ -17,7 +17,8 @@ import {
   RefreshCw,
   Youtube,
   Mail,
-  LogOut
+  LogOut,
+  Shuffle
 } from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/error-handler';
 import { Channel, Video } from '../types';
@@ -177,6 +178,89 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
+  // Shuffle videos in channel - RANDOMIZE ORDER
+  const shuffleVideos = async (channelId: string) => {
+    if (!isAdmin) {
+      setError("You don't have permission to shuffle videos");
+      return;
+    }
+    
+    if (!window.confirm('This will randomize the order of all videos in this channel. Continue?')) return;
+    
+    setIsProcessing(true);
+    setError(null);
+    setProgressMessage('Shuffling videos...');
+    
+    try {
+      const videosRef = collection(db, `channels/${channelId}/videos`);
+      const snapshot = await getDocs(videosRef);
+      
+      if (snapshot.empty) {
+        setError('No videos found in this channel');
+        setIsProcessing(false);
+        setProgressMessage('');
+        return;
+      }
+      
+      // Get all videos
+      const videos = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Shuffle the array using Fisher-Yates algorithm
+      const shuffled = [...videos];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      
+      // Update order numbers in batches
+      const BATCH_SIZE = 50;
+      let updatedCount = 0;
+      
+      for (let i = 0; i < shuffled.length; i += BATCH_SIZE) {
+        const batchEnd = Math.min(i + BATCH_SIZE, shuffled.length);
+        const batchVideos = shuffled.slice(i, batchEnd);
+        
+        const batch = writeBatch(db);
+        
+        batchVideos.forEach((video, idx) => {
+          const videoRef = doc(db, `channels/${channelId}/videos`, video.id);
+          batch.update(videoRef, { order: i + idx });
+        });
+        
+        await batch.commit();
+        updatedCount += batchVideos.length;
+        setProgressMessage(`Shuffled ${updatedCount} of ${shuffled.length} videos...`);
+      }
+      
+      setSuccess(`✅ Successfully shuffled ${shuffled.length} videos to random order!`);
+      setTimeout(() => setSuccess(null), 3000);
+      
+      // Refresh the video list
+      const updatedSnapshot = await getDocs(videosRef);
+      const updatedVideos = updatedSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          youtubeId: data.youtubeId,
+          title: data.title,
+          duration: typeof data.duration === 'number' ? data.duration : parseInt(data.duration, 10) || 0,
+          order: typeof data.order === 'number' ? data.order : parseInt(data.order, 10) || 0,
+        } as Video;
+      }).sort((a, b) => a.order - b.order);
+      setChannelVideos(updatedVideos);
+      
+      setProgressMessage('');
+    } catch (error: any) {
+      console.error("Failed to shuffle videos:", error);
+      setError(`Failed to shuffle videos: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // Parse ISO 8601 duration to seconds
   const parseDuration = (duration: string): number => {
     const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -240,7 +324,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
-  // Fix video durations using YouTube API - FIXED FOR LARGE DATASETS
+  // Fix video durations using YouTube API
   const fixVideoDurations = async (channelId: string) => {
     if (!apiKeyValid) {
       setError('Cannot fix durations: YouTube API key not configured');
@@ -283,7 +367,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       // Process videos in batches
       let updatedCount = 0;
       let failedCount = 0;
-      const BATCH_SIZE = 50; // Firebase batch limit
+      const BATCH_SIZE = 50;
       
       for (let i = 0; i < allVideos.length; i += BATCH_SIZE) {
         const batchEnd = Math.min(i + BATCH_SIZE, allVideos.length);
@@ -291,11 +375,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         
         setProgressMessage(`Processing videos ${i + 1} to ${batchEnd} of ${allVideos.length}...`);
         
-        // Create a NEW batch for each batch of videos
         const batch = writeBatch(db);
         let batchUpdatedCount = 0;
         
-        // Process each video in this batch
         for (const video of batchVideos) {
           try {
             const realDuration = await fetchYouTubeDuration(video.youtubeId);
@@ -315,7 +397,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           }
         }
         
-        // Commit this batch
         if (batchUpdatedCount > 0) {
           await batch.commit();
           updatedCount += batchUpdatedCount;
@@ -326,7 +407,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       if (updatedCount > 0) {
         setSuccess(`✅ Successfully updated ${updatedCount} videos! ${failedCount > 0 ? `⚠️ ${failedCount} failed` : ''}`);
         
-        // Refresh the video list
         const updatedSnapshot = await getDocs(videosRef);
         const updatedVideos = updatedSnapshot.docs.map(doc => {
           const data = doc.data();
@@ -337,7 +417,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             duration: typeof data.duration === 'number' ? data.duration : parseInt(data.duration, 10) || 0,
             order: typeof data.order === 'number' ? data.order : parseInt(data.order, 10) || 0,
           } as Video;
-        });
+        }).sort((a, b) => a.order - b.order);
         setChannelVideos(updatedVideos);
       } else {
         setError('Failed to fetch any durations. Check your YouTube API key and video IDs.');
@@ -682,11 +762,11 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     );
   }
 
-  // Admin view - REDUCED SIZE
+  // Admin view
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-        {/* Header - Compact */}
+        {/* Header */}
         <div className="flex justify-between items-center p-4 border-b border-zinc-800">
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <Settings className="w-4 h-4 text-orange-500" />
@@ -729,7 +809,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               {success}
             </div>
           )}
-          {progressMessage && fetchingDurations && (
+          {progressMessage && (fetchingDurations || isProcessing) && (
             <div className="p-2 bg-blue-500/10 border border-blue-500/50 rounded-lg text-blue-400 text-xs">
               <Loader2 className="w-3 h-3 inline mr-1 animate-spin" />
               {progressMessage}
@@ -744,7 +824,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             </div>
           )}
 
-          {/* Tab buttons - Compact */}
+          {/* Tab buttons */}
           <div className="flex gap-1 p-1 bg-zinc-800 rounded-lg">
             <button
               onClick={() => setActiveTab('create')}
@@ -781,7 +861,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             </button>
           </div>
 
-          {/* Create Channel Tab - Compact */}
+          {/* Create Channel Tab */}
           {activeTab === 'create' && (
             <form onSubmit={handleAddChannel} className="space-y-3">
               <input
@@ -825,7 +905,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             </form>
           )}
 
-          {/* Manage Channels Tab - Compact */}
+          {/* Manage Channels Tab */}
           {activeTab === 'manage' && (
             <div className="space-y-2 max-h-[50vh] overflow-y-auto">
               {channels.length === 0 ? (
@@ -851,7 +931,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             </div>
           )}
 
-          {/* Manage Videos Tab - Compact */}
+          {/* Manage Videos Tab */}
           {activeTab === 'videos' && (
             <div className="space-y-3">
               <select
@@ -897,6 +977,16 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                       Fix Durations
                     </button>
                   </div>
+
+                  {/* Shuffle Videos Button */}
+                  <button
+                    onClick={() => shuffleVideos(selectedChannel.id)}
+                    disabled={isProcessing || channelVideos.length === 0}
+                    className="w-full bg-green-600 text-white font-bold py-1.5 rounded-lg hover:bg-green-500 transition-all flex items-center justify-center gap-1 text-xs disabled:opacity-50"
+                  >
+                    <Shuffle className="w-3 h-3" />
+                    Shuffle Videos (Random Order)
+                  </button>
 
                   <form onSubmit={handleAddVideosToChannel} className="space-y-2">
                     <textarea
