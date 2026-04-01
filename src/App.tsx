@@ -6,38 +6,39 @@ import { Channel, Video } from './types';
 import { Player } from './components/Player';
 import { ChannelList } from './components/ChannelList';
 import { AdminPanel } from './components/AdminPanel';
-import { Tv, Radio, Info, Github, ExternalLink, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { Tv, LogIn, LogOut, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError, OperationType } from './lib/error-handler';
 import { cn } from './lib/utils';
+import { TVGuide } from './components/TVGuide';
 
 export default function App() {
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [videos, setVideos] = useState<Video[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(false);
-  const [showUI, setShowUI] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [titleTaps, setTitleTaps] = useState(0);
+  const [lastClickTime, setLastClickTime] = useState(0);
+  const [showGuide, setShowGuide] = useState(false);
+  const [channels, setChannels] = useState<Channel[]>([]);
 
+  // Load channels for the guide
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    const handleActivity = () => {
-      setShowUI(true);
-      clearTimeout(timeout);
-      timeout = setTimeout(() => setShowUI(false), 5000);
-    };
+    const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const channelData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Channel));
+      setChannels(channelData);
+    }, (error) => {
+      console.error("Error loading channels:", error);
+    });
 
-    window.addEventListener('mousemove', handleActivity);
-    window.addEventListener('keydown', handleActivity);
-    window.addEventListener('touchstart', handleActivity);
-    handleActivity();
-
-    return () => {
-      window.removeEventListener('mousemove', handleActivity);
-      window.removeEventListener('keydown', handleActivity);
-      window.removeEventListener('touchstart', handleActivity);
-      clearTimeout(timeout);
-    };
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -70,23 +71,12 @@ export default function App() {
     return () => unsubscribe();
   }, [selectedChannel]);
 
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [titleTaps, setTitleTaps] = useState(0);
-  const [lastClickTime, setLastClickTime] = useState(0);
-
-  const handleAdminAccess = () => {
-    console.log("Opening password modal...");
-    setShowPasswordModal(true);
-  };
-
   const handleSignIn = async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Sign in failed:", error);
-      alert('Sign in failed. If you are using a custom domain, make sure to add it to Firebase Console > Authentication > Settings > Authorized domains.');
     }
   };
 
@@ -99,24 +89,22 @@ export default function App() {
     }
   };
 
+  const handleAdminAccess = () => {
+    setShowPasswordModal(true);
+  };
+
   const verifyPassword = async (password: string) => {
-    console.log("Verifying password...");
     if (password === '07141994') {
-      console.log("Password correct. Checking user email...");
       setShowPasswordModal(false);
       if (user?.email === "rabanes.johncarlo4@gmail.com") {
-        console.log("User email matches admin. Opening panel.");
         setShowAdmin(true);
       } else {
-        console.log("User email mismatch or not logged in. Initiating Google Login...");
         try {
           const provider = new GoogleAuthProvider();
           const result = await signInWithPopup(auth, provider);
           if (result.user.email === "rabanes.johncarlo4@gmail.com") {
-            console.log("Google Login successful. Admin verified.");
             setShowAdmin(true);
           } else {
-            console.log("Google Login failed: Email not authorized.");
             alert('This account does not have administrator privileges.');
             await signOut(auth);
           }
@@ -125,43 +113,13 @@ export default function App() {
         }
       }
     } else {
-      console.log("Incorrect password entered.");
       alert('Incorrect password');
     }
   };
 
-  useEffect(() => {
-    console.log("YouTube Cable TV initialized. Path:", window.location.pathname);
-    
-    const checkPath = () => {
-      const path = window.location.pathname.toLowerCase();
-      if (path.includes('admin')) {
-        console.log("Admin path detected, opening password modal...");
-        setShowPasswordModal(true);
-      }
-    };
-
-    checkPath();
-    window.addEventListener('popstate', checkPath);
-    return () => window.removeEventListener('popstate', checkPath);
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.key === 'Z') {
-        console.log("Admin shortcut triggered");
-        handleAdminAccess();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [user]);
-
   const handleTitleClick = () => {
     const now = Date.now();
     const newTaps = (now - lastClickTime > 2000) ? 1 : titleTaps + 1;
-    
-    console.log(`Title click detected. Taps: ${newTaps}/10`);
     
     if (newTaps >= 10) {
       handleAdminAccess();
@@ -172,134 +130,54 @@ export default function App() {
     setLastClickTime(now);
   };
 
-  return (
-    <div className="min-h-screen bg-black text-white font-sans overflow-hidden">
-      {/* Fullscreen Player */}
-      <AnimatePresence mode="wait">
-        {selectedChannel && videos.length > 0 ? (
-          <motion.div
-            key={selectedChannel.id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 1 }}
-            className="fixed inset-0 z-0"
-          >
-            <Player channel={selectedChannel} videos={videos} />
-          </motion.div>
-        ) : loadingVideos ? (
-          <div className="fixed inset-0 bg-zinc-950 flex flex-col items-center justify-center text-zinc-600 z-0">
-            <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-6" />
-            <h2 className="text-2xl font-black uppercase tracking-widest text-white/20">Tuning Channel...</h2>
+  // Show loading state if no channel selected
+  if (!selectedChannel) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-8">
+          <div className="w-24 h-24 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
+            <Tv className="w-12 h-12 text-white" />
           </div>
-        ) : (
-          <div className="fixed inset-0 bg-zinc-950 flex flex-col items-center justify-center text-zinc-600 z-0">
-            <Tv className="w-24 h-24 mb-6 opacity-10 animate-pulse" />
-            <h2 className="text-2xl font-black uppercase tracking-widest text-white/20">Select a Channel</h2>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Smart TV Overlay UI */}
-      <motion.div 
-        animate={{ opacity: showUI ? 1 : 0 }}
-        transition={{ duration: 0.5 }}
-        className={cn(
-          "fixed inset-0 z-10 pointer-events-none"
-        )}
-      >
-        {/* Top Navigation Bar */}
-        <header className="absolute top-0 left-0 right-0 p-6 md:p-12 flex flex-col md:flex-row justify-between items-center md:items-start gap-6 pointer-events-auto">
-          <div className="flex items-center gap-3 md:gap-4 cursor-pointer" onClick={handleTitleClick}>
-            <div className="w-10 h-10 md:w-14 md:h-14 bg-orange-600 rounded-xl md:rounded-2xl flex items-center justify-center shadow-2xl shadow-orange-900/40">
-              <Tv className="w-6 h-6 md:w-8 md:h-8 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl md:text-3xl font-black tracking-tighter uppercase leading-none">YouTube Cable</h1>
-              <p className="text-[8px] md:text-[10px] font-bold text-orange-500 uppercase tracking-[0.3em] mt-1">Smart TV Experience</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 md:gap-6 w-full md:w-auto justify-center md:justify-end">
-            <nav className="hidden sm:flex items-center gap-4 md:gap-8">
-              <button className="text-sm md:text-lg font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors">Search</button>
-              <button className="text-sm md:text-lg font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors">Guide</button>
-              {user?.email === "rabanes.johncarlo4@gmail.com" && (
-                <button 
-                  onClick={() => setShowAdmin(true)}
-                  className="text-sm md:text-lg font-black uppercase tracking-widest text-orange-500 hover:text-orange-400 transition-colors"
-                >
-                  Admin
-                </button>
-              )}
-            </nav>
-
-            <div className="flex items-center gap-3 pointer-events-auto">
-              {user ? (
-                <div className="flex items-center gap-3">
-                  <div className="hidden md:block text-right">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Logged in as</p>
-                    <p className="text-xs font-bold text-white truncate max-w-[120px]">{user.displayName || user.email}</p>
-                  </div>
-                  <button 
-                    onClick={handleSignOut}
-                    className="w-10 h-10 md:w-12 md:h-12 bg-zinc-800 rounded-full flex items-center justify-center hover:bg-zinc-700 transition-colors group"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-5 h-5 md:w-6 md:h-6 text-white/40 group-hover:text-white" />
-                  </button>
-                </div>
-              ) : (
-                <button 
-                  onClick={handleSignIn}
-                  className="flex items-center gap-2 px-4 py-2 md:px-6 md:py-3 bg-zinc-800 rounded-xl font-black uppercase tracking-widest text-[10px] md:text-xs hover:bg-zinc-700 transition-colors"
-                >
-                  <LogIn className="w-4 h-4" />
-                  <span>Sign In</span>
-                </button>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* Channel Info Overlay */}
-        {selectedChannel && (
-          <div className="absolute left-6 md:left-12 bottom-48 md:bottom-64 max-w-[90%] md:max-w-2xl">
-            <motion.div
-              initial={{ x: -50, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-            >
-              <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-4">
-                <div className="px-2 py-0.5 md:px-3 md:py-1 bg-orange-600 text-[8px] md:text-[10px] font-black uppercase tracking-widest rounded-md">Live Now</div>
-                <div className="flex items-center gap-1.5 md:gap-2 text-white/60 text-[10px] md:text-xs font-bold uppercase tracking-widest">
-                  <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-green-500 rounded-full animate-pulse" />
-                  {selectedChannel.name}
-                </div>
-              </div>
-              <h2 className="text-4xl md:text-7xl font-black tracking-tighter mb-4 md:mb-6 leading-none uppercase line-clamp-2">{selectedChannel.name}</h2>
-              <p className="text-sm md:text-xl text-white/60 font-medium leading-relaxed line-clamp-2 mb-6 md:mb-8">
-                {selectedChannel.description || 'Experience synchronized real-time broadcasting powered by Google AI.'}
-              </p>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Bottom Channel Shelf */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-12 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-auto">
+          <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">YouTube Cable</h1>
+          <p className="text-white/60 mb-8">Select a channel to start watching</p>
           <ChannelList
-            selectedChannelId={selectedChannel?.id || null}
+            selectedChannelId={null}
             onSelectChannel={setSelectedChannel}
           />
         </div>
-      </motion.div>
+      </div>
+    );
+  }
 
+  return (
+    <div className="fixed inset-0 bg-black">
+      {/* Player - Fullscreen */}
+      <Player 
+        channel={selectedChannel} 
+        videos={videos}
+        onShowGuide={() => setShowGuide(true)}
+      />
+
+      {/* Channel List Overlay (Only for channel selection) */}
+      {!selectedChannel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95">
+          <div className="w-full max-w-4xl p-8">
+            <h2 className="text-2xl font-bold text-white mb-6 text-center">Select a Channel</h2>
+            <ChannelList
+              selectedChannelId={null}
+              onSelectChannel={setSelectedChannel}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Admin Panel */}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
       
       {/* Password Modal */}
       <AnimatePresence>
         {showPasswordModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/90 backdrop-blur-sm">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -342,6 +220,20 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* TV Guide */}
+      {showGuide && (
+        <TVGuide
+          currentChannel={selectedChannel}
+          allChannels={channels}
+          videos={videos}
+          onChannelSelect={(channel) => {
+            setSelectedChannel(channel);
+            setShowGuide(false);
+          }}
+          onClose={() => setShowGuide(false)}
+        />
+      )}
     </div>
   );
 }
