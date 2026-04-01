@@ -3,7 +3,7 @@ import YouTube, { YouTubeProps } from 'react-youtube';
 import { Channel, Video, PlaybackState } from '../types';
 import { 
   Volume2, VolumeX, X, Tv, Clock, Play, 
-  SkipForward, AlertCircle, Menu, Maximize2, 
+  SkipForward, SkipBack, AlertCircle, Menu, Maximize2, 
   Minimize2, Film, Heart, Share2, Info, 
   ChevronRight, ChevronLeft, ThumbsUp, 
   ThumbsDown, Bookmark, MoreHorizontal, RefreshCw
@@ -12,10 +12,12 @@ import {
 interface PlayerProps {
   channel: Channel;
   videos: Video[];
+  allChannels?: Channel[]; // Add all channels for navigation
+  onChannelChange?: (channel: Channel) => void; // Callback for channel change
   onShowGuide?: () => void;
 }
 
-export function Player({ channel, videos, onShowGuide }: PlayerProps) {
+export function Player({ channel, videos, allChannels = [], onChannelChange, onShowGuide }: PlayerProps) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
@@ -30,12 +32,50 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [manualRetry, setManualRetry] = useState(false);
-  const [videoKey, setVideoKey] = useState(0); // Force re-render of YouTube component
+  const [videoKey, setVideoKey] = useState(0);
+  const [channelKey, setChannelKey] = useState(0); // Force re-render on channel change
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
   const errorTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Find current channel index for navigation
+  const currentChannelIndex = allChannels.findIndex(c => c.id === channel.id);
+  const hasPrevious = currentChannelIndex > 0;
+  const hasNext = currentChannelIndex < allChannels.length - 1;
+
+  // Previous channel
+  const handlePreviousChannel = () => {
+    if (hasPrevious && onChannelChange) {
+      const prevChannel = allChannels[currentChannelIndex - 1];
+      console.log('Switching to previous channel:', prevChannel.name);
+      onChannelChange(prevChannel);
+      // Reset video playback state
+      setPlayback(null);
+      setSkippingVideo(null);
+      setSkipCountdown(0);
+      setError(null);
+      setVideoKey(prev => prev + 1);
+      setChannelKey(prev => prev + 1);
+    }
+  };
+
+  // Next channel
+  const handleNextChannel = () => {
+    if (hasNext && onChannelChange) {
+      const nextChannel = allChannels[currentChannelIndex + 1];
+      console.log('Switching to next channel:', nextChannel.name);
+      onChannelChange(nextChannel);
+      // Reset video playback state
+      setPlayback(null);
+      setSkippingVideo(null);
+      setSkipCountdown(0);
+      setError(null);
+      setVideoKey(prev => prev + 1);
+      setChannelKey(prev => prev + 1);
+    }
+  };
 
   // Auto-hide controls after 3 seconds of inactivity
   useEffect(() => {
@@ -113,16 +153,14 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
     setSkipCountdown(0);
     setError(null);
     setErrorDetails('');
-    // Increment video key to force YouTube player re-render with new video
     setVideoKey(prev => prev + 1);
   };
 
-  // Handle mute/unmute - store in localStorage to persist across video changes
+  // Handle mute/unmute
   const toggleMute = (e: React.MouseEvent) => {
     e.stopPropagation();
     const newMutedState = !isMuted;
     setIsMuted(newMutedState);
-    // Store user preference in localStorage
     localStorage.setItem('playerMuted', String(newMutedState));
     
     if (playerRef.current) {
@@ -138,7 +176,7 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
     }
   };
 
-  // Load saved mute preference on mount
+  // Load saved mute preference
   useEffect(() => {
     const savedMuted = localStorage.getItem('playerMuted');
     if (savedMuted !== null) {
@@ -167,37 +205,30 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
     }
   };
 
-  // Handle video errors with detailed messages
+  // Handle video errors
   const onError: YouTubeProps['onError'] = (event) => {
     const errorCode = event.data;
-    let errorMessage = '';
     let userMessage = '';
     
-    // YouTube player error codes
     switch (errorCode) {
       case 2:
-        errorMessage = 'Invalid video ID';
         userMessage = 'The video may have been removed or is invalid.';
         break;
       case 5:
-        errorMessage = 'HTML5 player error';
         userMessage = 'This video cannot be played in your browser.';
         break;
       case 100:
-        errorMessage = 'Video not found';
         userMessage = 'The video has been removed or is unavailable.';
         break;
       case 101:
       case 150:
-        errorMessage = 'Embedding disabled';
         userMessage = 'This video cannot be embedded or is private.';
         break;
       default:
-        errorMessage = `Unknown error (${errorCode})`;
         userMessage = 'An unexpected error occurred.';
     }
     
-    console.error(`YouTube Error: ${errorMessage}`, event);
+    console.error(`YouTube Error:`, event);
     
     if (playback?.currentVideo && !skippingVideo) {
       setSkippingVideo(playback.currentVideo);
@@ -205,7 +236,6 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
       setErrorDetails(userMessage);
       setError(`"${playback.currentVideo.title}" is unavailable. Skipping in 5 seconds...`);
       
-      // Clear error after 6 seconds (allowing time for skip)
       if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
       errorTimeoutRef.current = setTimeout(() => {
         if (!skippingVideo) {
@@ -226,6 +256,7 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
     }
   };
 
+  // Calculate playback for current channel
   useEffect(() => {
     if (!videos || videos.length === 0) {
       setError('No videos found in this channel');
@@ -268,12 +299,10 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         }
 
         if (currentVideo) {
-          // Check if video changed
           const videoChanged = playback?.currentVideo?.id !== currentVideo.id;
           setPlayback({ currentVideo, offset, nextVideo });
           setError(null);
           
-          // If video changed, increment key to force YouTube player refresh
           if (videoChanged) {
             setVideoKey(prev => prev + 1);
           }
@@ -296,7 +325,6 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         event.target.seekTo(playback.offset, true);
         event.target.playVideo();
         
-        // Apply the current mute state
         if (isMuted) {
           event.target.mute();
         } else {
@@ -317,7 +345,6 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
           event.target.seekTo(playback.offset, true);
         }
         
-        // Ensure mute state is maintained when video starts playing
         if (isMuted !== event.target.isMuted()) {
           if (isMuted) {
             event.target.mute();
@@ -397,10 +424,10 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
       className="fixed inset-0 bg-black"
       onMouseMove={handleMouseMove}
     >
-      {/* YouTube Player with key to force re-render on video change */}
+      {/* YouTube Player */}
       <div className="absolute inset-0">
         <YouTube
-          key={videoKey}
+          key={`${channelKey}-${videoKey}`}
           videoId={playback.currentVideo.youtubeId}
           opts={{
             width: '100%',
@@ -413,7 +440,7 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
               modestbranding: 1,
               rel: 0,
               showinfo: 0,
-              mute: isMuted ? 1 : 0, // Use current mute state
+              mute: isMuted ? 1 : 0,
               iv_load_policy: 3,
               autohide: 1
             },
@@ -425,7 +452,6 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         />
       </div>
 
-      {/* Rest of the component remains the same... */}
       {/* Gradient Overlays */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/40 pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-r from-black/20 via-transparent to-black/20 pointer-events-none" />
@@ -500,19 +526,53 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         {/* Controls Row */}
         <div className="flex items-center justify-between max-w-6xl mx-auto">
           <div className="flex items-center gap-4">
+            {/* Previous Channel Button */}
+            <button
+              onClick={handlePreviousChannel}
+              disabled={!hasPrevious}
+              className={`p-2 rounded-full transition-all backdrop-blur-sm border border-white/10 ${
+                hasPrevious 
+                  ? 'bg-white/10 hover:bg-white/20 text-white' 
+                  : 'bg-white/5 text-white/30 cursor-not-allowed'
+              }`}
+              title="Previous Channel"
+            >
+              <SkipBack className="w-5 h-5" />
+            </button>
+            
+            {/* Next Channel Button */}
+            <button
+              onClick={handleNextChannel}
+              disabled={!hasNext}
+              className={`p-2 rounded-full transition-all backdrop-blur-sm border border-white/10 ${
+                hasNext 
+                  ? 'bg-white/10 hover:bg-white/20 text-white' 
+                  : 'bg-white/5 text-white/30 cursor-not-allowed'
+              }`}
+              title="Next Channel"
+            >
+              <SkipForward className="w-5 h-5" />
+            </button>
+            
+            <div className="h-6 w-px bg-white/20 mx-2" />
+            
             <button
               onClick={toggleMute}
               className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
             >
               {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
             </button>
+            
             <button
               onClick={manualSkip}
               className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
+              title="Skip Video"
             >
               <SkipForward className="w-5 h-5 text-white" />
             </button>
+            
             <div className="h-6 w-px bg-white/20 mx-2" />
+            
             <button
               onClick={() => setIsLiked(!isLiked)}
               className={`p-2 rounded-full transition-all backdrop-blur-sm border border-white/10 ${isLiked ? 'bg-orange-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}
@@ -549,7 +609,18 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         </div>
       </div>
 
-      {/* Enhanced Error Toast with Retry and Countdown */}
+      {/* Channel Navigation Indicator */}
+      {(hasPrevious || hasNext) && (
+        <div className={`absolute left-1/2 transform -translate-x-1/2 bottom-24 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+          <div className="bg-black/50 backdrop-blur-md rounded-full px-3 py-1 text-white/40 text-[10px] flex items-center gap-2">
+            {hasPrevious && <SkipBack className="w-3 h-3" />}
+            <span>{currentChannelIndex + 1} / {allChannels.length}</span>
+            {hasNext && <SkipForward className="w-3 h-3" />}
+          </div>
+        </div>
+      )}
+
+      {/* Error Toast */}
       {error && (
         <div className="fixed top-24 left-1/2 transform -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top duration-300">
           <div className="bg-gradient-to-r from-red-500/95 to-orange-500/95 backdrop-blur-md text-white px-6 py-4 rounded-xl shadow-2xl border border-white/20 max-w-md">

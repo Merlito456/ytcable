@@ -40,18 +40,32 @@ export default function App() {
         return;
       }
       
+      // Channel navigation with arrow keys
+      if (selectedChannel && channels.length > 0) {
+        const currentIndex = channels.findIndex(c => c.id === selectedChannel.id);
+        
+        switch (e.key) {
+          case 'ArrowLeft':
+            e.preventDefault();
+            if (currentIndex > 0) {
+              handleChannelChange(channels[currentIndex - 1]);
+            }
+            break;
+          case 'ArrowRight':
+            e.preventDefault();
+            if (currentIndex < channels.length - 1) {
+              handleChannelChange(channels[currentIndex + 1]);
+            }
+            break;
+        }
+      }
+      
       // Other navigation
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault();
           break;
         case 'ArrowDown':
-          e.preventDefault();
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          break;
-        case 'ArrowRight':
           e.preventDefault();
           break;
         case 'Enter':
@@ -69,7 +83,15 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showGuide, showSidebar, showAdmin, showPasswordModal]);
+  }, [showGuide, showSidebar, showAdmin, showPasswordModal, selectedChannel, channels]);
+
+  // Handle channel change
+  const handleChannelChange = (channel: Channel) => {
+    console.log('Switching to channel:', channel.name);
+    setSelectedChannel(channel);
+    setVideos([]); // Clear videos while loading
+    setShowGuide(false);
+  };
 
   // Load channels and auto-select the first one
   useEffect(() => {
@@ -274,6 +296,8 @@ export default function App() {
         <Player 
           channel={selectedChannel} 
           videos={videos}
+          allChannels={channels}
+          onChannelChange={handleChannelChange}
           onShowGuide={() => setShowGuide(true)}
         />
       )}
@@ -318,7 +342,7 @@ export default function App() {
                     <Search className="w-6 h-6 text-orange-500" />
                     <div>
                       <div className="text-white font-bold text-lg">TV Guide</div>
-                      <div className="text-white/40 text-sm">Browse channel schedule</div>
+                      <div className="text-white/40 text-sm">Browse what's on now and next</div>
                     </div>
                   </button>
                   
@@ -370,10 +394,7 @@ export default function App() {
           currentChannel={selectedChannel!}
           allChannels={channels}
           videos={videos}
-          onChannelSelect={(channel) => {
-            setSelectedChannel(channel);
-            setShowGuide(false);
-          }}
+          onChannelSelect={handleChannelChange}
           onClose={() => setShowGuide(false)}
         />
       )}
@@ -436,8 +457,14 @@ export default function App() {
 
       {/* Smart TV Remote Control Hint */}
       <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-30 pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
-        <div className="bg-black/50 backdrop-blur-md rounded-full px-4 py-2 text-white/40 text-xs">
-          Press Menu for options • ESC to go back • Ctrl+Shift+Z for Admin
+        <div className="bg-black/50 backdrop-blur-md rounded-full px-4 py-2 text-white/40 text-xs flex items-center gap-3">
+          <span>← → Change Channel</span>
+          <span>•</span>
+          <span>Menu for Options</span>
+          <span>•</span>
+          <span>ESC to Go Back</span>
+          <span>•</span>
+          <span>Ctrl+Shift+Z for Admin</span>
         </div>
       </div>
 
