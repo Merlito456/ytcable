@@ -14,7 +14,8 @@ import {
   Link,
   AlertCircle,
   CheckCircle,
-  RefreshCw
+  RefreshCw,
+  Youtube
 } from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/error-handler';
 import { Channel, Video } from '../types';
@@ -22,6 +23,9 @@ import { Channel, Video } from '../types';
 interface AdminPanelProps {
   onClose: () => void;
 }
+
+// Use the YouTube API key from environment variables
+const YOUTUBE_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY;
 
 export function AdminPanel({ onClose }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<'create' | 'manage' | 'videos'>('create');
@@ -37,146 +41,208 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [fetchingDurations, setFetchingDurations] = useState(false);
+  const [apiKeyValid, setApiKeyValid] = useState<boolean>(true);
 
+  // Check YouTube API key on mount
   useEffect(() => {
-    console.log("AdminPanel mounted");
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      
-      if (user) {
-        console.log("User authenticated:", user.email);
-        console.log("Email verified:", user.emailVerified);
-        
-        // Check if the user is admin based on email
-        const adminEmail = "rabanes.johncarlo4@gmail.com";
-        const isUserAdmin = user.email === adminEmail && user.emailVerified === true;
-        setIsAdmin(isUserAdmin);
-        
-        if (!isUserAdmin) {
-          setError(`You don't have admin permissions. Only ${adminEmail} with verified email can manage channels.`);
-        } else {
-          console.log("Admin access granted");
-          setError(null);
-        }
-      } else {
-        console.log("No user authenticated");
-        setIsAdmin(false);
-        setError("Please sign in to access admin features.");
-      }
-    });
-    
-    return () => unsubscribe();
+    if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'YOUR_YOUTUBE_API_KEY_HERE') {
+      console.warn('YouTube API key not configured');
+      setApiKeyValid(false);
+      setError('YouTube API key not configured. Please add VITE_YOUTUBE_API_KEY to your environment variables.');
+    } else {
+      console.log('YouTube API key configured');
+      setApiKeyValid(true);
+    }
   }, []);
 
-  // Load channels for manage tab
-  useEffect(() => {
-    if (activeTab !== 'manage' && activeTab !== 'videos') return;
+  // Parse ISO 8601 duration to seconds
+  const parseDuration = (duration: string): number => {
+    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    const hours = parseInt(match?.[1] || '0');
+    const minutes = parseInt(match?.[2] || '0');
+    const seconds = parseInt(match?.[3] || '0');
+    return (hours * 3600) + (minutes * 60) + seconds;
+  };
+
+  // Fetch video duration from YouTube API
+  const fetchYouTubeDuration = async (youtubeId: string): Promise<number> => {
+    if (!apiKeyValid) return 0;
     
-    if (!isAdmin) {
-      console.log("Not admin, skipping channel load");
-      return;
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${youtubeId}&key=${YOUTUBE_API_KEY}`
+      );
+      const data = await response.json();
+      
+      if (data.items && data.items.length > 0) {
+        const duration = data.items[0].contentDetails.duration;
+        const totalSeconds = parseDuration(duration);
+        console.log(`Fetched duration for ${youtubeId}: ${totalSeconds}s`);
+        return totalSeconds;
+      }
+      console.warn(`No video found for YouTube ID: ${youtubeId}`);
+      return 0;
+    } catch (error) {
+      console.error(`Failed to fetch duration for ${youtubeId}:`, error);
+      return 0;
     }
+  };
 
-    console.log("Loading channels...");
-    const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const channelData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Channel));
-      setChannels(channelData);
-      console.log("Channels loaded:", channelData.length);
-    }, (error) => {
-      console.error("Error loading channels:", error);
-      handleFirestoreError(error, OperationType.LIST, 'channels');
-      setError(`Failed to load channels: ${error.message}`);
-    });
-
-    return () => unsubscribe();
-  }, [activeTab, isAdmin]);
-
-  // Load videos when a channel is selected
-  useEffect(() => {
-    if (!selectedChannel || !isAdmin) {
-      setChannelVideos([]);
-      return;
-    }
-
-    console.log("Loading videos for channel:", selectedChannel.id);
-    const videosRef = collection(db, `channels/${selectedChannel.id}/videos`);
-    const q = query(videosRef, orderBy('order', 'asc'));
+  // Fetch durations for multiple videos in batch
+  const fetchVideosDurations = async (youtubeIds: string[]): Promise<Map<string, number>> => {
+    if (!apiKeyValid) return new Map();
     
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const videosData = snapshot.docs.map(doc => {
-        const data = doc.data();
-        // Ensure duration is a number
-        return {
-          id: doc.id,
-          youtubeId: data.youtubeId,
-          title: data.title,
-          duration: typeof data.duration === 'number' ? data.duration : parseInt(data.duration, 10) || 300,
-          order: typeof data.order === 'number' ? data.order : parseInt(data.order, 10) || 0,
-        } as Video;
-      });
-      setChannelVideos(videosData);
-      console.log("Videos loaded:", videosData.length);
-    }, (error) => {
-      console.error("Failed to load videos:", error);
-      setError(`Failed to load videos: ${error.message}`);
-    });
+    const durationMap = new Map<string, number>();
+    const uniqueIds = [...new Set(youtubeIds)]; // Remove duplicates
+    const batchSize = 50; // YouTube API allows up to 50 IDs per request
+    
+    for (let i = 0; i < uniqueIds.length; i += batchSize) {
+      const batch = uniqueIds.slice(i, i + batchSize);
+      const idsParam = batch.join(',');
+      
+      try {
+        const response = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${idsParam}&key=${YOUTUBE_API_KEY}`
+        );
+        const data = await response.json();
+        
+        if (data.items) {
+          data.items.forEach((item: any) => {
+            const totalSeconds = parseDuration(item.contentDetails.duration);
+            durationMap.set(item.id, totalSeconds);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch batch:', error);
+      }
+    }
+    
+    return durationMap;
+  };
 
-    return () => unsubscribe();
-  }, [selectedChannel, isAdmin]);
+  // Parse video line and optionally fetch duration
+  const parseVideoLine = async (line: string, fetchFromApi: boolean = false): Promise<{ youtubeId: string; title: string; duration: number } | null> => {
+    let youtubeId = '';
+    let title = '';
+    let duration = 0;
+    
+    // Format: youtubeId|title|duration
+    if (line.includes('|')) {
+      const parts = line.split('|').map(s => s.trim());
+      if (parts.length >= 3) {
+        youtubeId = parts[0];
+        title = parts[1];
+        duration = parseInt(parts[2], 10);
+        if ((isNaN(duration) || duration <= 0) && fetchFromApi) {
+          duration = await fetchYouTubeDuration(youtubeId);
+        }
+      }
+    } 
+    // Format: youtubeId,title,duration
+    else if (line.includes(',')) {
+      const parts = line.split(',').map(s => s.trim());
+      if (parts.length >= 3) {
+        youtubeId = parts[0];
+        title = parts[1];
+        duration = parseInt(parts[2], 10);
+        if ((isNaN(duration) || duration <= 0) && fetchFromApi) {
+          duration = await fetchYouTubeDuration(youtubeId);
+        }
+      }
+    }
+    // Format: Just youtubeId
+    else {
+      youtubeId = line.trim();
+      title = `Video ${youtubeId}`;
+      if (fetchFromApi) {
+        duration = await fetchYouTubeDuration(youtubeId);
+      }
+    }
+    
+    if (youtubeId) {
+      // If duration is still 0 and we didn't fetch from API, use default
+      if (duration <= 0) {
+        duration = 300; // 5 minutes fallback
+        console.warn(`Using default duration (300s) for ${title}`);
+      }
+      return { youtubeId, title, duration };
+    }
+    return null;
+  };
 
-  // Fix video durations in a channel
+  // Fix video durations using YouTube API
   const fixVideoDurations = async (channelId: string) => {
-    if (!window.confirm('This will fix all videos in this channel to have proper durations (default 300 seconds if invalid). Continue?')) return;
+    if (!apiKeyValid) {
+      setError('Cannot fix durations: YouTube API key not configured');
+      return;
+    }
+    
+    if (!window.confirm('This will fetch real durations from YouTube API for all videos in this channel. Continue?')) return;
+    
+    setFetchingDurations(true);
+    setError(null);
     
     try {
       const videosRef = collection(db, `channels/${channelId}/videos`);
       const snapshot = await getDocs(videosRef);
       
-      const batch = writeBatch(db);
-      let fixedCount = 0;
+      const videosToFix: { id: string; youtubeId: string; title: string }[] = [];
       
       snapshot.docs.forEach((doc) => {
         const data = doc.data();
-        let needsUpdate = false;
-        const updates: any = {};
-        
-        // Check if duration is invalid
         const duration = data.duration;
+        // Check if duration is invalid (string, zero, or negative)
         if (typeof duration !== 'number' || duration <= 0 || isNaN(duration)) {
-          const numericDuration = parseInt(duration, 10);
-          updates.duration = (!isNaN(numericDuration) && numericDuration > 0) ? numericDuration : 300;
-          needsUpdate = true;
-          console.log(`Fixing duration for ${data.title}: "${duration}" -> ${updates.duration}`);
+          videosToFix.push({
+            id: doc.id,
+            youtubeId: data.youtubeId,
+            title: data.title,
+          });
+        }
+      });
+      
+      if (videosToFix.length === 0) {
+        setSuccess('All videos already have valid durations!');
+        setTimeout(() => setSuccess(null), 3000);
+        setFetchingDurations(false);
+        return;
+      }
+      
+      // Fetch durations for all videos
+      const youtubeIds = videosToFix.map(v => v.youtubeId);
+      const durationMap = await fetchVideosDurations(youtubeIds);
+      
+      const batch = writeBatch(db);
+      let fixedCount = 0;
+      let failedCount = 0;
+      
+      videosToFix.forEach((video) => {
+        const realDuration = durationMap.get(video.youtubeId);
+        if (realDuration && realDuration > 0) {
+          const videoRef = doc(db, `channels/${channelId}/videos`, video.id);
+          batch.update(videoRef, { duration: realDuration });
           fixedCount++;
-        }
-        
-        // Check if order is a string
-        if (typeof data.order === 'string') {
-          updates.order = parseInt(data.order, 10);
-          needsUpdate = true;
-          console.log(`Fixing order for ${data.title}: "${data.order}" -> ${updates.order}`);
-        }
-        
-        if (needsUpdate) {
-          batch.update(doc.ref, updates);
+          console.log(`✓ Fixed ${video.title}: ${realDuration}s`);
+        } else {
+          failedCount++;
+          console.warn(`✗ Could not fetch duration for ${video.title} (${video.youtubeId})`);
         }
       });
       
       if (fixedCount > 0) {
         await batch.commit();
-        setSuccess(`Fixed ${fixedCount} videos with invalid durations!`);
-        setTimeout(() => setSuccess(null), 3000);
+        setSuccess(`Successfully fixed ${fixedCount} videos with real durations from YouTube!${failedCount > 0 ? ` (${failedCount} failed to fetch)` : ''}`);
       } else {
-        setSuccess('All videos have valid durations!');
-        setTimeout(() => setSuccess(null), 3000);
+        setError('Failed to fetch durations for videos. Check your YouTube API key and video IDs.');
       }
+      
+      setTimeout(() => setSuccess(null), 3000);
     } catch (error) {
       console.error('Failed to fix videos:', error);
       setError('Failed to fix videos. Check console for details.');
+    } finally {
+      setFetchingDurations(false);
     }
   };
 
@@ -189,7 +255,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     if (!window.confirm('Are you sure you want to delete this channel and all its videos?')) return;
     
     try {
-      console.log("Deleting channel:", channelId);
       await deleteDoc(doc(db, 'channels', channelId));
       setSuccess('Channel deleted successfully!');
       if (selectedChannel?.id === channelId) {
@@ -213,7 +278,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     if (!window.confirm('Are you sure you want to delete this video?')) return;
     
     try {
-      console.log("Deleting video:", videoId);
       await deleteDoc(doc(db, `channels/${selectedChannel.id}/videos`, videoId));
       setSuccess('Video deleted successfully!');
       setTimeout(() => setSuccess(null), 3000);
@@ -222,51 +286,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       setError(`Failed to delete video: ${error.message}`);
       setTimeout(() => setError(null), 5000);
     }
-  };
-
-  const parseVideoLine = (line: string): { youtubeId: string; title: string; duration: number } | null => {
-    let youtubeId = '';
-    let title = '';
-    let duration = 0;
-    
-    // Format: youtubeId|title|duration
-    if (line.includes('|')) {
-      const parts = line.split('|').map(s => s.trim());
-      if (parts.length >= 3) {
-        youtubeId = parts[0];
-        title = parts[1];
-        duration = parseInt(parts[2], 10);
-        // Validate duration
-        if (isNaN(duration) || duration <= 0) {
-          console.warn(`Invalid duration for video ${title}: ${parts[2]}, using default 300`);
-          duration = 300;
-        }
-      }
-    } 
-    // Format: youtubeId,title,duration
-    else if (line.includes(',')) {
-      const parts = line.split(',').map(s => s.trim());
-      if (parts.length >= 3) {
-        youtubeId = parts[0];
-        title = parts[1];
-        duration = parseInt(parts[2], 10);
-        if (isNaN(duration) || duration <= 0) {
-          console.warn(`Invalid duration for video ${title}: ${parts[2]}, using default 300`);
-          duration = 300;
-        }
-      }
-    }
-    // Format: Just youtubeId
-    else {
-      youtubeId = line.trim();
-      title = `Video ${youtubeId}`;
-      duration = 300; // Default duration for videos without specified duration
-    }
-    
-    if (youtubeId) {
-      return { youtubeId, title, duration };
-    }
-    return null;
   };
 
   const handleAddChannel = async (e: React.FormEvent) => {
@@ -284,18 +303,15 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     try {
       // Parse video data
       const lines = videoData.split('\n').filter(l => l.trim().length > 0);
-      const videos: Omit<Video, 'id'>[] = [];
+      const videos: { youtubeId: string; title: string; duration: number }[] = [];
       
+      setSuccess('Fetching video durations from YouTube...');
+      
+      // Parse each video line and fetch durations from API
       for (const line of lines) {
-        const parsed = parseVideoLine(line);
+        const parsed = await parseVideoLine(line, true); // Fetch from YouTube API
         if (parsed) {
-          console.log(`Parsed video: ${parsed.title} - Duration: ${parsed.duration}s (${Math.floor(parsed.duration / 60)}:${(parsed.duration % 60).toString().padStart(2, '0')})`);
-          videos.push({
-            youtubeId: parsed.youtubeId,
-            title: parsed.title,
-            duration: parsed.duration, // Ensure it's a number
-            order: videos.length,
-          });
+          videos.push(parsed);
         }
       }
       
@@ -308,7 +324,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       console.log("Creating channel with", videos.length, "videos");
       console.log("Videos data:", videos);
       
-      // Create channel document with required fields
+      // Create channel document
       const channelData = {
         name: channelName,
         description: channelDesc || "",
@@ -324,14 +340,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       const batch = writeBatch(db);
       videos.forEach((video, index) => {
         const videoRef = doc(collection(db, `channels/${channelRef.id}/videos`));
-        const videoDataToStore = {
+        batch.set(videoRef, {
           youtubeId: video.youtubeId,
           title: video.title,
-          duration: Number(video.duration), // Force number type
-          order: Number(index), // Force number type
-        };
-        console.log(`Storing video ${index + 1}:`, videoDataToStore);
-        batch.set(videoRef, videoDataToStore);
+          duration: Number(video.duration),
+          order: Number(index),
+        });
       });
       
       await batch.commit();
@@ -349,7 +363,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       
     } catch (error: any) {
       console.error("Failed to add channel:", error);
-      
       if (error.code === 'permission-denied') {
         setError('Permission denied. Please make sure you are logged in as admin with verified email.');
       } else {
@@ -374,18 +387,14 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     
     try {
       const lines = videoData.split('\n').filter(l => l.trim().length > 0);
-      const videos: Omit<Video, 'id'>[] = [];
+      const videos: { youtubeId: string; title: string; duration: number }[] = [];
+      
+      setSuccess('Fetching video durations from YouTube...');
       
       for (const line of lines) {
-        const parsed = parseVideoLine(line);
+        const parsed = await parseVideoLine(line, true); // Fetch from YouTube API
         if (parsed) {
-          console.log(`Adding video: ${parsed.title} - Duration: ${parsed.duration}s`);
-          videos.push({
-            youtubeId: parsed.youtubeId,
-            title: parsed.title,
-            duration: Number(parsed.duration), // Ensure number type
-            order: channelVideos.length + videos.length,
-          });
+          videos.push(parsed);
         }
       }
       
@@ -396,17 +405,16 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       }
       
       console.log("Adding", videos.length, "videos to channel:", selectedChannel.id);
-      console.log("Videos to add:", videos);
       
       const batch = writeBatch(db);
       
-      videos.forEach((video) => {
+      videos.forEach((video, idx) => {
         const videoRef = doc(collection(db, `channels/${selectedChannel.id}/videos`));
         batch.set(videoRef, {
           youtubeId: video.youtubeId,
           title: video.title,
-          duration: Number(video.duration), // Force number type
-          order: Number(video.order), // Force number type
+          duration: Number(video.duration),
+          order: Number(channelVideos.length + idx),
         });
       });
       
@@ -436,13 +444,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     if (!selectedChannel) return;
     
     try {
-      console.log("Updating video:", video.id);
       const videoRef = doc(db, `channels/${selectedChannel.id}/videos`, video.id);
       await setDoc(videoRef, {
         youtubeId: video.youtubeId,
         title: video.title,
-        duration: Number(video.duration), // Ensure number type
-        order: Number(video.order), // Ensure number type
+        duration: Number(video.duration),
+        order: Number(video.order),
       });
       
       setEditingVideo(null);
@@ -461,8 +468,13 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
 
   const formatDuration = (seconds: number) => {
     if (!seconds || seconds <= 0) return '0:00';
-    const mins = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
@@ -517,6 +529,14 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* API Key Status */}
+        {!apiKeyValid && (
+          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/50 rounded-lg text-yellow-500 text-sm flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>YouTube API key not configured. Video durations will default to 5 minutes. Add VITE_YOUTUBE_API_KEY to your .env file.</span>
+          </div>
+        )}
 
         {/* Error and Success Messages */}
         {error && (
@@ -599,16 +619,17 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                   <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Video Metadata</label>
                   <div className="group relative">
                     <Info className="w-3 h-3 text-zinc-600 cursor-help" />
-                    <div className="absolute bottom-full right-0 mb-2 w-64 p-3 bg-zinc-800 border border-zinc-700 rounded-xl text-[10px] text-zinc-400 leading-relaxed opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-2xl">
+                    <div className="absolute bottom-full right-0 mb-2 w-80 p-3 bg-zinc-800 border border-zinc-700 rounded-xl text-[10px] text-zinc-400 leading-relaxed opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-2xl">
                       <p className="font-bold mb-1">Supported Formats:</p>
-                      <p className="font-mono text-orange-500">youtubeId | title | duration</p>
-                      <p className="text-xs mt-1">Example: <span className="text-white">dQw4w9WgXcQ | Rick Astley | 212</span></p>
-                      <p className="text-xs mt-1">One video per line. Duration in seconds.</p>
+                      <p className="font-mono text-orange-500 text-xs">youtubeId | title | duration</p>
+                      <p className="font-mono text-orange-500 text-xs">youtubeId, title, duration</p>
+                      <p className="font-mono text-orange-500 text-xs">youtubeId</p>
+                      <p className="text-xs mt-2">Duration is optional. If omitted or 0, will be fetched from YouTube API automatically.</p>
                     </div>
                   </div>
                 </div>
                 <textarea
-                  placeholder="youtubeId | title | durationInSeconds&#10;dQw4w9WgXcQ | Rick Astley - Never Gonna Give You Up | 212&#10;8SbUC-UaAxE | Another Video | 180"
+                  placeholder="youtubeId | title | duration&#10;dQw4w9WgXcQ | Rick Astley - Never Gonna Give You Up | 212&#10;8SbUC-UaAxE | Another Video (duration auto-fetched)&#10;M7FIvfx5J10"
                   value={videoData}
                   onChange={(e) => setVideoData(e.target.value)}
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 h-48"
@@ -628,7 +649,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                   </>
                 ) : (
                   <>
-                    <ListPlus className="w-5 h-5" />
+                    <Youtube className="w-5 h-5" />
                     <span>Create Channel with Videos</span>
                   </>
                 )}
@@ -697,17 +718,27 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                 {/* Fix Durations Button */}
                 <button
                   onClick={() => fixVideoDurations(selectedChannel.id)}
-                  className="w-full bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-500 transition-all flex items-center justify-center gap-2 text-sm"
+                  disabled={fetchingDurations || !apiKeyValid}
+                  className="w-full bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-500 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50"
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  Fix Video Durations (Convert Strings to Numbers)
+                  {fetchingDurations ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Fetching durations from YouTube...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Fetch Real Durations from YouTube API</span>
+                    </>
+                  )}
                 </button>
 
                 <form onSubmit={handleAddVideosToChannel} className="space-y-3">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Add Videos to Channel</label>
                     <textarea
-                      placeholder="youtubeId | title | durationInSeconds&#10;dQw4w9WgXcQ | Rick Astley - Never Gonna Give You Up | 212"
+                      placeholder="youtubeId | title | duration&#10;dQw4w9WgXcQ | Rick Astley - Never Gonna Give You Up | 212&#10;8SbUC-UaAxE | Another Video (duration auto-fetched)"
                       value={videoData}
                       onChange={(e) => setVideoData(e.target.value)}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 h-32"
@@ -725,7 +756,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                       </>
                     ) : (
                       <>
-                        <Plus className="w-4 h-4" />
+                        <Youtube className="w-4 h-4" />
                         <span>Add Videos to Channel</span>
                       </>
                     )}
@@ -758,7 +789,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                             <input
                               type="number"
                               value={editingVideo.duration}
-                              onChange={(e) => setEditingVideo({...editingVideo, duration: parseInt(e.target.value) || 300})}
+                              onChange={(e) => setEditingVideo({...editingVideo, duration: parseInt(e.target.value) || 0})}
                               className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-sm"
                               placeholder="Duration (seconds)"
                             />
@@ -794,7 +825,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                               <p className="text-sm text-white mt-1">{video.title}</p>
                               <p className="text-xs text-zinc-500">
                                 Duration: {formatDuration(video.duration)} • Order: {video.order}
-                                {(!video.duration || video.duration <= 0) && ' ⚠️ Invalid duration'}
+                                {(!video.duration || video.duration <= 0) && ' ⚠️ Invalid duration (click Fix button)'}
                               </p>
                             </div>
                             <div className="flex gap-1">
