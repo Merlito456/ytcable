@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Channel, Video } from '../types';
-import { Search, Tv, Clock, X, Play, Info, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Tv, Clock, X, Play, Info, Calendar, ChevronLeft, ChevronRight, Zap } from 'lucide-react';
 
 interface TVGuideProps {
   currentChannel: Channel;
@@ -12,6 +12,22 @@ interface TVGuideProps {
   onClose: () => void;
 }
 
+interface ProgramWithTime {
+  id: string;
+  title: string;
+  description: string;
+  duration: number;
+  durationFormatted: string;
+  startTime: Date;
+  endTime: Date;
+  isLive: boolean;
+  hd: boolean;
+  channelId: string;
+  order: number;
+  youtubeId: string;
+  progress?: number;
+}
+
 export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, onClose }: TVGuideProps) {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,8 +35,10 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [showInfo, setShowInfo] = useState(false);
-  const [channelVideosMap, setChannelVideosMap] = useState<Map<string, Video[]>>(new Map());
+  const [channelProgramsMap, setChannelProgramsMap] = useState<Map<string, ProgramWithTime[]>>(new Map());
   const [loadingChannels, setLoadingChannels] = useState<Set<string>>(new Set());
+  const [timelineStartHour, setTimelineStartHour] = useState(6); // Start at 6 AM
+  const [timelineEndHour, setTimelineEndHour] = useState(24); // End at midnight
 
   // Update current time every minute
   useEffect(() => {
@@ -29,41 +47,6 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     }, 60000);
     return () => clearInterval(timer);
   }, []);
-
-  // Fetch videos for a specific channel
-  const fetchChannelVideos = async (channelId: string) => {
-    if (channelVideosMap.has(channelId)) return;
-    
-    setLoadingChannels(prev => new Set(prev).add(channelId));
-    
-    try {
-      const videosRef = collection(db, `channels/${channelId}/videos`);
-      const q = query(videosRef, orderBy('order', 'asc'));
-      const snapshot = await getDocs(q);
-      
-      const channelVideos: Video[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Video));
-      
-      setChannelVideosMap(prev => new Map(prev).set(channelId, channelVideos));
-    } catch (error) {
-      console.error(`Failed to fetch videos for channel ${channelId}:`, error);
-    } finally {
-      setLoadingChannels(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(channelId);
-        return newSet;
-      });
-    }
-  };
-
-  // Load videos for all channels
-  useEffect(() => {
-    allChannels.forEach(channel => {
-      fetchChannelVideos(channel.id);
-    });
-  }, [allChannels]);
 
   // Format duration to readable time
   const formatDuration = (seconds: number) => {
@@ -81,74 +64,123 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     return `${secs}s`;
   };
 
-  // Get time slot based on video index
-  const getTimeSlot = (index: number, totalVideos: number) => {
-    const startHour = 12; // Start at 12 PM
-    const totalSlots = 12; // 12 time slots (12pm to 11pm)
-    const slotIndex = Math.floor((index / totalVideos) * totalSlots);
-    const hour = (startHour + slotIndex) % 24;
-    const ampm = hour >= 12 ? 'pm' : 'am';
-    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-    return `${displayHour}:00 ${ampm}`;
+  // Format time for display
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Generate program data from actual videos
-  const getChannelPrograms = (channel: Channel) => {
-    const channelVideos = channelVideosMap.get(channel.id) || [];
+  // Calculate start time based on video order and total duration
+  const calculateVideoTimes = (channelVideos: Video[], channelStartTime: number) => {
+    const programs: ProgramWithTime[] = [];
+    let currentTime = new Date(channelStartTime);
     
-    if (channelVideos.length === 0) {
-      // Return placeholder if still loading or no videos
-      const isLoading = loadingChannels.has(channel.id);
-      return [{
-        title: isLoading ? 'Loading videos...' : `${channel.name} - Coming Soon`,
-        description: isLoading ? 'Fetching video data...' : 'Content will be available shortly',
-        duration: '0:00',
-        time: '12:00 pm',
-        isLive: false,
-        hd: true,
-        channelId: channel.id,
-        order: 0,
-        youtubeId: ''
-      }];
-    }
-
-    // Generate programs based on actual videos
-    return channelVideos.map((video, idx) => {
-      const timeSlot = getTimeSlot(idx, channelVideos.length);
-      const isLive = idx === 0 && channel.id === currentChannel.id;
+    // Set to today's date at the start time
+    const today = new Date();
+    today.setHours(6, 0, 0, 0); // Start at 6 AM today
+    
+    let accumulatedTime = 0;
+    
+    channelVideos.forEach((video, idx) => {
+      const startTime = new Date(today);
+      startTime.setSeconds(startTime.getSeconds() + accumulatedTime);
       
-      return {
+      const endTime = new Date(startTime);
+      endTime.setSeconds(endTime.getSeconds() + video.duration);
+      
+      const now = new Date();
+      const isLive = now >= startTime && now <= endTime;
+      
+      let progress = 0;
+      if (isLive) {
+        const elapsed = (now.getTime() - startTime.getTime()) / 1000;
+        progress = (elapsed / video.duration) * 100;
+      }
+      
+      programs.push({
         id: video.id,
         title: video.title,
         description: video.title,
-        duration: formatDuration(video.duration),
-        durationSeconds: video.duration,
-        time: timeSlot,
-        isLive: isLive,
+        duration: video.duration,
+        durationFormatted: formatDuration(video.duration),
+        startTime,
+        endTime,
+        isLive,
         hd: true,
-        channelId: channel.id,
+        channelId: channelVideos[0]?.id || '',
         order: idx,
-        youtubeId: video.youtubeId
-      };
+        youtubeId: video.youtubeId,
+        progress
+      });
+      
+      accumulatedTime += video.duration;
     });
+    
+    return programs;
   };
 
-  // Time slots for the guide header
-  const timeSlots = [
-    '12:00 pm', '1:00 pm', '2:00 pm', '3:00 pm', '4:00 pm', '5:00 pm', 
-    '6:00 pm', '7:00 pm', '8:00 pm', '9:00 pm', '10:00 pm', '11:00 pm'
-  ];
+  // Fetch videos for a specific channel and calculate schedule
+  const fetchChannelSchedule = async (channel: Channel) => {
+    if (channelProgramsMap.has(channel.id)) return;
+    
+    setLoadingChannels(prev => new Set(prev).add(channel.id));
+    
+    try {
+      const videosRef = collection(db, `channels/${channel.id}/videos`);
+      const q = query(videosRef, orderBy('order', 'asc'));
+      const snapshot = await getDocs(q);
+      
+      const channelVideos: Video[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Video));
+      
+      // Calculate schedule based on channel start time
+      const programs = calculateVideoTimes(channelVideos, channel.startTime);
+      setChannelProgramsMap(prev => new Map(prev).set(channel.id, programs));
+    } catch (error) {
+      console.error(`Failed to fetch schedule for channel ${channel.name}:`, error);
+    } finally {
+      setLoadingChannels(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(channel.id);
+        return newSet;
+      });
+    }
+  };
 
-  // Days of the week
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const nextDays = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(new Date().getDate() + i);
-    return date;
-  });
+  // Load schedules for all channels
+  useEffect(() => {
+    allChannels.forEach(channel => {
+      fetchChannelSchedule(channel);
+    });
+  }, [allChannels]);
 
-  const formatDate = (date: Date) => {
-    return `${days[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`;
+  // Generate timeline hours
+  const timelineHours = [];
+  for (let hour = timelineStartHour; hour <= timelineEndHour; hour++) {
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    const ampm = hour >= 12 ? 'pm' : 'am';
+    timelineHours.push({ hour, display: `${displayHour}:00 ${ampm}` });
+  }
+
+  // Calculate position and width for a program in the timeline
+  const getProgramStyle = (program: ProgramWithTime) => {
+    const startHour = program.startTime.getHours();
+    const startMinute = program.startTime.getMinutes();
+    const endHour = program.endTime.getHours();
+    const endMinute = program.endTime.getMinutes();
+    
+    const totalMinutes = (timelineEndHour - timelineStartHour) * 60;
+    const startMinutes = ((startHour - timelineStartHour) * 60) + startMinute;
+    const durationMinutes = ((endHour - startHour) * 60) + (endMinute - startMinute);
+    
+    const left = (startMinutes / totalMinutes) * 100;
+    const width = (durationMinutes / totalMinutes) * 100;
+    
+    return {
+      left: `${Math.max(0, left)}%`,
+      width: `${Math.min(100 - left, width)}%`,
+    };
   };
 
   // Filter channels based on search
@@ -156,6 +188,14 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     channel.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     channel.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Get current program for a channel
+  const getCurrentProgram = (channelId: string) => {
+    const programs = channelProgramsMap.get(channelId);
+    if (!programs) return null;
+    const now = new Date();
+    return programs.find(p => now >= p.startTime && now <= p.endTime);
+  };
 
   const handleChannelClick = (channel: Channel) => {
     setSelectedChannel(channel);
@@ -222,53 +262,54 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
             </div>
           </div>
         )}
-
-        {/* Date Navigation */}
-        <div className="px-4 md:px-6 pb-2 overflow-x-auto">
-          <div className="flex gap-2 min-w-max">
-            {nextDays.map((date, idx) => {
-              const isSelected = date.toDateString() === selectedDate.toDateString();
-              return (
-                <button
-                  key={idx}
-                  onClick={() => setSelectedDate(date)}
-                  className={`px-4 py-2 rounded-lg transition-all whitespace-nowrap ${
-                    isSelected 
-                      ? 'bg-orange-500 text-white' 
-                      : 'bg-white/10 text-white/80 hover:bg-white/20'
-                  }`}
-                >
-                  <div className="text-xs font-medium">{days[date.getDay()]}</div>
-                  <div className="text-sm font-bold">{date.getDate()}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       {/* Main Guide Content */}
-      <div className="pt-32 pb-6 h-full overflow-y-auto">
+      <div className="pt-24 pb-6 h-full overflow-auto">
         <div className="px-4 md:px-6">
-          {/* Time Header */}
-          <div className="flex border-b border-white/10 sticky top-0 bg-black z-10">
-            <div className="w-32 md:w-48 flex-shrink-0" />
-            <div className="flex-1 flex">
-              {timeSlots.map((slot, idx) => (
-                <div
-                  key={idx}
-                  className="flex-1 text-center py-2 text-xs font-medium text-white/60"
-                >
-                  {slot}
-                </div>
-              ))}
+          {/* Timeline Header */}
+          <div className="sticky top-0 bg-black z-20 pb-2">
+            <div className="flex border-b border-white/10">
+              <div className="w-48 flex-shrink-0" />
+              <div className="flex-1 flex relative h-12">
+                {timelineHours.map((hour, idx) => (
+                  <div
+                    key={idx}
+                    className="absolute text-center text-xs font-medium text-white/60"
+                    style={{ left: `${(idx / (timelineHours.length - 1)) * 100}%`, transform: 'translateX(-50%)' }}
+                  >
+                    {hour.display}
+                  </div>
+                ))}
+                {/* Current Time Indicator */}
+                {(() => {
+                  const now = new Date();
+                  const currentHour = now.getHours();
+                  const currentMinute = now.getMinutes();
+                  if (currentHour >= timelineStartHour && currentHour <= timelineEndHour) {
+                    const totalMinutes = (timelineEndHour - timelineStartHour) * 60;
+                    const currentMinutes = ((currentHour - timelineStartHour) * 60) + currentMinute;
+                    const position = (currentMinutes / totalMinutes) * 100;
+                    return (
+                      <div
+                        className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-30"
+                        style={{ left: `${position}%` }}
+                      >
+                        <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-red-500 rounded-full" />
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
             </div>
           </div>
 
-          {/* Channel List */}
+          {/* Channel List with Gantt Chart */}
           <div className="divide-y divide-white/5">
             {filteredChannels.map((channel) => {
-              const programs = getChannelPrograms(channel);
+              const programs = channelProgramsMap.get(channel.id) || [];
+              const currentProgram = getCurrentProgram(channel.id);
               const isCurrent = currentChannel.id === channel.id;
               const isLoading = loadingChannels.has(channel.id);
               
@@ -281,45 +322,77 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                   onClick={() => handleChannelClick(channel)}
                 >
                   {/* Channel Info */}
-                  <div className="w-32 md:w-48 flex-shrink-0 py-3 pr-4">
+                  <div className="w-48 flex-shrink-0 py-3 pr-4 sticky left-0 bg-black z-10">
                     <div className="flex items-center gap-2">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                         isCurrent ? 'bg-orange-500' : 'bg-white/10'
                       }`}>
-                        <Tv className={`w-4 h-4 ${isCurrent ? 'text-white' : 'text-white/60'}`} />
+                        <Tv className={`w-5 h-5 ${isCurrent ? 'text-white' : 'text-white/60'}`} />
                       </div>
                       <div>
                         <div className="font-bold text-white text-sm">{channel.name}</div>
                         <div className="text-[10px] text-white/40">
-                          {isLoading ? 'Loading...' : `${programs.length} videos`}
+                          {isLoading ? 'Loading...' : `${programs.length} programs`}
                         </div>
+                        {currentProgram && (
+                          <div className="text-[10px] text-orange-400 mt-1 flex items-center gap-1">
+                            <Zap className="w-2 h-2" />
+                            <span>Live: {currentProgram.title.substring(0, 20)}...</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Programs */}
-                  <div className="flex-1 flex overflow-x-auto">
-                    {programs.map((program, idx) => (
-                      <div
-                        key={idx}
-                        className={`min-w-[100px] flex-1 p-2 border-l border-white/5 transition-all hover:bg-white/10 ${
-                          program.isLive ? 'bg-orange-500/5' : ''
-                        }`}
-                      >
-                        <div className="text-xs font-medium text-white line-clamp-2">
-                          {program.title}
-                        </div>
-                        <div className="text-[10px] text-white/40 mt-1">
-                          {program.duration} • {program.hd && 'HD'}
-                        </div>
-                        {program.isLive && (
-                          <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 bg-red-500 rounded text-[8px] font-bold text-white">
-                            <div className="w-1 h-1 bg-white rounded-full animate-pulse" />
-                            LIVE
+                  {/* Gantt Chart Timeline */}
+                  <div className="flex-1 relative min-h-[80px] py-2">
+                    {programs.map((program) => {
+                      const style = getProgramStyle(program);
+                      return (
+                        <div
+                          key={program.id}
+                          className={`absolute h-[60px] rounded-lg p-2 overflow-hidden transition-all hover:scale-102 ${
+                            program.isLive 
+                              ? 'bg-orange-500/30 border-l-4 border-orange-500' 
+                              : 'bg-white/5 hover:bg-white/10'
+                          }`}
+                          style={{
+                            left: style.left,
+                            width: style.width,
+                            top: '8px',
+                          }}
+                          title={`${program.title}\n${formatTime(program.startTime)} - ${formatTime(program.endTime)}`}
+                        >
+                          <div className="text-xs font-medium text-white truncate">
+                            {program.title}
                           </div>
-                        )}
+                          <div className="text-[10px] text-white/40">
+                            {formatTime(program.startTime)} - {formatTime(program.endTime)}
+                          </div>
+                          <div className="text-[9px] text-white/30 mt-1">
+                            {program.durationFormatted} • {program.hd && 'HD'}
+                          </div>
+                          {program.isLive && program.progress && (
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/20">
+                              <div 
+                                className="h-full bg-orange-500 rounded-full"
+                                style={{ width: `${program.progress}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {programs.length === 0 && !isLoading && (
+                      <div className="h-[60px] flex items-center justify-center text-white/30 text-xs">
+                        No schedule available
                       </div>
-                    ))}
+                    )}
+                    {isLoading && (
+                      <div className="h-[60px] flex items-center justify-center">
+                        <div className="w-5 h-5 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -335,11 +408,20 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
                 <h3 className="text-white font-bold text-lg">{currentChannel.name}</h3>
-                {videos.length > 0 && (
-                  <p className="text-white/60 text-sm mt-1">
-                    {videos[0]?.title || 'Loading...'} • {formatDuration(videos[0]?.duration || 0)}
-                  </p>
-                )}
+                {(() => {
+                  const currentProgram = getCurrentProgram(currentChannel.id);
+                  if (currentProgram) {
+                    return (
+                      <div>
+                        <p className="text-white/80 text-sm">{currentProgram.title}</p>
+                        <p className="text-white/40 text-xs mt-1">
+                          {formatTime(currentProgram.startTime)} - {formatTime(currentProgram.endTime)} • {currentProgram.durationFormatted}
+                        </p>
+                      </div>
+                    );
+                  }
+                  return <p className="text-white/60 text-sm">No program currently playing</p>;
+                })()}
               </div>
               <button
                 onClick={onClose}
@@ -365,7 +447,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                 <div>
                   <h3 className="text-white font-bold text-lg">{selectedChannel.name}</h3>
                   <p className="text-white/40 text-xs">
-                    {channelVideosMap.get(selectedChannel.id)?.length || 0} videos
+                    {channelProgramsMap.get(selectedChannel.id)?.length || 0} programs scheduled
                   </p>
                 </div>
               </div>
@@ -377,6 +459,21 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
             <p className="text-white/70 text-sm mb-4 leading-relaxed">
               {selectedChannel.description || `${selectedChannel.name} - 24/7 streaming of curated content.`}
             </p>
+            
+            {/* Upcoming Programs Preview */}
+            <div className="mb-4">
+              <h4 className="text-white/40 text-xs font-bold uppercase tracking-wider mb-2">Up Next</h4>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {channelProgramsMap.get(selectedChannel.id)?.slice(0, 3).map(program => (
+                  <div key={program.id} className="bg-white/5 rounded-lg p-2">
+                    <div className="text-white text-xs font-medium">{program.title}</div>
+                    <div className="text-white/40 text-[10px] mt-1">
+                      {formatTime(program.startTime)} - {formatTime(program.endTime)} • {program.durationFormatted}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             
             <div className="flex items-center gap-4 text-white/40 text-xs border-t border-white/10 pt-4 mb-4">
               <div className="flex items-center gap-1">

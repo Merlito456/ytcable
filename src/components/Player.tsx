@@ -30,6 +30,7 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [manualRetry, setManualRetry] = useState(false);
+  const [videoKey, setVideoKey] = useState(0); // Force re-render of YouTube component
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
@@ -112,25 +113,38 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
     setSkipCountdown(0);
     setError(null);
     setErrorDetails('');
+    // Increment video key to force YouTube player re-render with new video
+    setVideoKey(prev => prev + 1);
   };
 
-  // Handle mute/unmute
+  // Handle mute/unmute - store in localStorage to persist across video changes
   const toggleMute = (e: React.MouseEvent) => {
     e.stopPropagation();
+    const newMutedState = !isMuted;
+    setIsMuted(newMutedState);
+    // Store user preference in localStorage
+    localStorage.setItem('playerMuted', String(newMutedState));
+    
     if (playerRef.current) {
       try {
-        if (isMuted) {
-          playerRef.current.unMute();
-          setIsMuted(false);
-        } else {
+        if (newMutedState) {
           playerRef.current.mute();
-          setIsMuted(true);
+        } else {
+          playerRef.current.unMute();
         }
       } catch (err) {
         console.error('Error toggling mute:', err);
       }
     }
   };
+
+  // Load saved mute preference on mount
+  useEffect(() => {
+    const savedMuted = localStorage.getItem('playerMuted');
+    if (savedMuted !== null) {
+      setIsMuted(savedMuted === 'true');
+    }
+  }, []);
 
   // Handle retry
   const handleRetry = () => {
@@ -254,8 +268,15 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         }
 
         if (currentVideo) {
+          // Check if video changed
+          const videoChanged = playback?.currentVideo?.id !== currentVideo.id;
           setPlayback({ currentVideo, offset, nextVideo });
           setError(null);
+          
+          // If video changed, increment key to force YouTube player refresh
+          if (videoChanged) {
+            setVideoKey(prev => prev + 1);
+          }
         }
       } catch (err) {
         console.error('Error calculating playback:', err);
@@ -274,7 +295,13 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
       try {
         event.target.seekTo(playback.offset, true);
         event.target.playVideo();
-        if (isMuted) event.target.mute();
+        
+        // Apply the current mute state
+        if (isMuted) {
+          event.target.mute();
+        } else {
+          event.target.unMute();
+        }
       } catch (err) {
         console.error('Error in onReady:', err);
       }
@@ -288,6 +315,15 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         const diff = Math.abs(currentTime - playback.offset);
         if (diff > 2) {
           event.target.seekTo(playback.offset, true);
+        }
+        
+        // Ensure mute state is maintained when video starts playing
+        if (isMuted !== event.target.isMuted()) {
+          if (isMuted) {
+            event.target.mute();
+          } else {
+            event.target.unMute();
+          }
         }
       }
       
@@ -361,9 +397,10 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
       className="fixed inset-0 bg-black"
       onMouseMove={handleMouseMove}
     >
-      {/* YouTube Player */}
+      {/* YouTube Player with key to force re-render on video change */}
       <div className="absolute inset-0">
         <YouTube
+          key={videoKey}
           videoId={playback.currentVideo.youtubeId}
           opts={{
             width: '100%',
@@ -376,7 +413,7 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
               modestbranding: 1,
               rel: 0,
               showinfo: 0,
-              mute: 1,
+              mute: isMuted ? 1 : 0, // Use current mute state
               iv_load_policy: 3,
               autohide: 1
             },
@@ -388,6 +425,7 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         />
       </div>
 
+      {/* Rest of the component remains the same... */}
       {/* Gradient Overlays */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/40 pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-r from-black/20 via-transparent to-black/20 pointer-events-none" />
