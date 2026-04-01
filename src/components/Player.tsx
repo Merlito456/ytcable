@@ -16,7 +16,6 @@ export function Player({ channel, videos }: PlayerProps) {
   const [error, setError] = useState<string | null>(null);
   const [skippingVideo, setSkippingVideo] = useState<Video | null>(null);
   const [skipCountdown, setSkipCountdown] = useState<number>(0);
-  const [playerReady, setPlayerReady] = useState(false);
   const playerRef = useRef<any>(null);
   const infoTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
@@ -68,8 +67,9 @@ export function Player({ channel, videos }: PlayerProps) {
     setSkipCountdown(0);
   };
 
-  // Handle mute/unmute with proper YouTube API calls
-  const toggleMute = () => {
+  // Handle mute/unmute with proper YouTube API calls - FIXED
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent event from bubbling
     console.log('Toggle mute clicked, current state:', isMuted);
     
     if (playerRef.current) {
@@ -130,13 +130,25 @@ export function Player({ channel, videos }: PlayerProps) {
   };
 
   // Manual skip button handler
-  const manualSkip = () => {
+  const manualSkip = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (skippingVideo) {
       handleSkipVideo();
     } else if (playback?.nextVideo) {
       setSkippingVideo(playback.currentVideo);
       handleSkipVideo();
     }
+  };
+
+  // Channel list toggle
+  const toggleChannelList = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowChannelList(!showChannelList);
+  };
+
+  // Show info on click
+  const showInfoOverlay = () => {
+    setShowInfo(true);
   };
 
   useEffect(() => {
@@ -207,7 +219,6 @@ export function Player({ channel, videos }: PlayerProps) {
 
   const onReady: YouTubeProps['onReady'] = (event) => {
     playerRef.current = event.target;
-    setPlayerReady(true);
     console.log('YouTube player ready');
     
     if (playback && !skippingVideo) {
@@ -431,10 +442,10 @@ export function Player({ channel, videos }: PlayerProps) {
         </div>
       </div>
 
-      {/* Control Buttons - Enhanced with better click handling */}
+      {/* Control Buttons - FIXED with stopPropagation */}
       <div className="absolute top-6 right-6 z-50 flex gap-3">
         <button
-          onClick={() => setShowChannelList(!showChannelList)}
+          onClick={toggleChannelList}
           className="bg-black/60 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/10 hover:scale-110 active:scale-95"
           title="Channel List"
         >
@@ -463,7 +474,7 @@ export function Player({ channel, videos }: PlayerProps) {
         <>
           <div 
             className="fixed inset-0 bg-black/40 z-50 transition-opacity"
-            onClick={() => setShowChannelList(false)}
+            onClick={toggleChannelList}
           />
           <div className="fixed bottom-0 left-0 right-0 md:left-auto md:right-0 md:top-0 md:w-1/2 bg-black/95 backdrop-blur-xl border-t md:border-l border-white/10 z-50 shadow-2xl animate-in slide-in-from-bottom md:slide-in-from-right duration-300">
             <div className="flex items-center justify-between p-4 border-b border-white/10">
@@ -472,7 +483,7 @@ export function Player({ channel, videos }: PlayerProps) {
                 <h3 className="text-white font-bold text-sm">Channel Information</h3>
               </div>
               <button
-                onClick={() => setShowChannelList(false)}
+                onClick={toggleChannelList}
                 className="text-white/60 hover:text-white p-1 rounded-lg transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -565,10 +576,10 @@ export function Player({ channel, videos }: PlayerProps) {
         </>
       )}
 
-      {/* Click to show info overlay */}
+      {/* Click to show info overlay - now uses separate handler */}
       <div 
         className="absolute inset-0 cursor-pointer z-30"
-        onClick={() => setShowInfo(true)}
+        onClick={showInfoOverlay}
       />
     </div>
   );
