@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Channel, Video } from '../types';
-import { Search, Tv, Clock, X, Play, Info } from 'lucide-react';
+import { Search, Tv, Clock, X, Play, Info, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface TVGuideProps {
   currentChannel: Channel;
@@ -17,6 +17,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+  const [selectedChannelVideos, setSelectedChannelVideos] = useState<Video[]>([]);
 
   // Update current time every minute
   useEffect(() => {
@@ -26,7 +27,84 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     return () => clearInterval(timer);
   }, []);
 
-  // Time slots for the guide
+  // Load videos for selected channel
+  useEffect(() => {
+    if (selectedChannel) {
+      // In a real app, you'd fetch videos for the selected channel
+      // For now, we'll use the videos prop which is for the current channel
+      setSelectedChannelVideos(videos);
+    }
+  }, [selectedChannel, videos]);
+
+  // Format duration to readable time
+  const formatDuration = (seconds: number) => {
+    if (!seconds || seconds <= 0) return '0:00';
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}h ${mins}m`;
+    }
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
+  };
+
+  // Format time slot from video order
+  const getTimeSlot = (order: number, totalVideos: number) => {
+    const startHour = 12; // Start at 12 PM
+    const slotDuration = 1; // 1 hour slots
+    const hour = (startHour + Math.floor(order / (totalVideos / 12))) % 24;
+    const ampm = hour >= 12 ? 'pm' : 'am';
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    return `${displayHour}:00 ${ampm}`;
+  };
+
+  // Generate program data from actual videos
+  const getChannelPrograms = (channel: Channel) => {
+    // For the selected channel, we need to fetch its videos
+    // This is a simplified version - in production, you'd fetch videos per channel
+    const channelVideos = channel.id === currentChannel.id ? videos : [];
+    
+    if (channelVideos.length === 0) {
+      // Return placeholder if no videos
+      return [{
+        title: `${channel.name} - Coming Soon`,
+        description: 'Content will be available shortly',
+        duration: '0:00',
+        time: '12:00 pm',
+        isLive: false,
+        hd: true,
+        channelId: channel.id,
+        order: 0,
+        youtubeId: ''
+      }];
+    }
+
+    // Generate programs based on actual videos
+    return channelVideos.map((video, idx) => {
+      const timeSlot = getTimeSlot(idx, channelVideos.length);
+      const isLive = idx === 0 && channel.id === currentChannel.id; // First video is "live"
+      
+      return {
+        id: video.id,
+        title: video.title,
+        description: video.title,
+        duration: formatDuration(video.duration),
+        durationSeconds: video.duration,
+        time: timeSlot,
+        isLive: isLive,
+        hd: true,
+        channelId: channel.id,
+        order: idx,
+        youtubeId: video.youtubeId
+      };
+    });
+  };
+
+  // Time slots for the guide header
   const timeSlots = [
     '12:00 pm', '1:00 pm', '2:00 pm', '3:00 pm', '4:00 pm', '5:00 pm', 
     '6:00 pm', '7:00 pm', '8:00 pm', '9:00 pm', '10:00 pm', '11:00 pm'
@@ -42,28 +120,6 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
 
   const formatDate = (date: Date) => {
     return `${days[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`;
-  };
-
-  // Generate program data based on channel
-  const getChannelPrograms = (channel: Channel) => {
-    const programs = [];
-    const currentHour = currentTime.getHours();
-    
-    for (let i = 0; i < timeSlots.length; i++) {
-      const slotTime = timeSlots[i];
-      const isLive = slotTime.includes(currentHour.toString());
-      
-      programs.push({
-        title: `${channel.name} Program`,
-        description: channel.description || `${channel.name} - 24/7 streaming`,
-        duration: '1 hr',
-        time: slotTime,
-        isLive: isLive,
-        hd: true,
-        channelId: channel.id,
-      });
-    }
-    return programs;
   };
 
   // Filter channels based on search
@@ -247,7 +303,11 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
                 <h3 className="text-white font-bold text-lg">{currentChannel.name}</h3>
-                <p className="text-white/60 text-sm">{currentChannel.description || '24/7 Live Stream'}</p>
+                {videos.length > 0 && (
+                  <p className="text-white/60 text-sm mt-1">
+                    {videos[0]?.title || 'Loading...'} • {formatDuration(videos[0]?.duration || 0)}
+                  </p>
+                )}
               </div>
               <button
                 onClick={onClose}
