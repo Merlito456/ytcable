@@ -7,7 +7,7 @@ import { Player } from './components/Player';
 import { ChannelList } from './components/ChannelList';
 import { AdminPanel } from './components/AdminPanel';
 import { TVGuide } from './components/TVGuide';
-import { Tv, LogIn, LogOut, Menu, Search, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Tv, LogIn, LogOut, Menu, Search, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError, OperationType } from './lib/error-handler';
 
@@ -29,7 +29,18 @@ export default function App() {
   // Smart TV: Handle remote control navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Arrow navigation for TV remote
+      // Debug logging for admin shortcut
+      console.log('Key pressed:', e.key, 'Ctrl:', e.ctrlKey, 'Shift:', e.shiftKey);
+      
+      // Admin shortcut: Ctrl + Shift + Z
+      if (e.ctrlKey && e.shiftKey && (e.key === 'Z' || e.key === 'z')) {
+        console.log("Admin shortcut triggered!");
+        e.preventDefault();
+        handleAdminAccess();
+        return;
+      }
+      
+      // Other navigation
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault();
@@ -51,13 +62,14 @@ export default function App() {
           if (showGuide) setShowGuide(false);
           if (showSidebar) setShowSidebar(false);
           if (showAdmin) setShowAdmin(false);
+          if (showPasswordModal) setShowPasswordModal(false);
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showGuide, showSidebar, showAdmin]);
+  }, [showGuide, showSidebar, showAdmin, showPasswordModal]);
 
   // Load channels and auto-select the first one
   useEffect(() => {
@@ -104,7 +116,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, []); // Empty dependency array - run once on mount
+  }, []);
 
   // Load videos when channel changes
   useEffect(() => {
@@ -129,6 +141,15 @@ export default function App() {
     return () => unsubscribe();
   }, [selectedChannel]);
 
+  // Auth state listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const handleSignIn = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -148,21 +169,28 @@ export default function App() {
   };
 
   const handleAdminAccess = () => {
+    console.log("Opening password modal...");
     setShowPasswordModal(true);
   };
 
   const verifyPassword = async (password: string) => {
+    console.log("Verifying password...");
     if (password === '07141994') {
+      console.log("Password correct. Checking user email...");
       setShowPasswordModal(false);
       if (user?.email === "rabanes.johncarlo4@gmail.com") {
+        console.log("User email matches admin. Opening panel.");
         setShowAdmin(true);
       } else {
+        console.log("User email mismatch or not logged in. Initiating Google Login...");
         try {
           const provider = new GoogleAuthProvider();
           const result = await signInWithPopup(auth, provider);
           if (result.user.email === "rabanes.johncarlo4@gmail.com") {
+            console.log("Google Login successful. Admin verified.");
             setShowAdmin(true);
           } else {
+            console.log("Google Login failed: Email not authorized.");
             alert('This account does not have administrator privileges.');
             await signOut(auth);
           }
@@ -171,6 +199,7 @@ export default function App() {
         }
       }
     } else {
+      console.log("Incorrect password entered.");
       alert('Incorrect password');
     }
   };
@@ -178,6 +207,8 @@ export default function App() {
   const handleTitleClick = () => {
     const now = Date.now();
     const newTaps = (now - lastClickTime > 2000) ? 1 : titleTaps + 1;
+    
+    console.log(`Title click detected. Taps: ${newTaps}/10`);
     
     if (newTaps >= 10) {
       handleAdminAccess();
@@ -224,6 +255,12 @@ export default function App() {
               Open Admin Panel
             </button>
           )}
+          <button
+            onClick={handleAdminAccess}
+            className="mt-4 px-6 py-3 bg-white/10 text-white rounded-xl font-medium hover:bg-white/20 transition-all"
+          >
+            Admin Access (Ctrl+Shift+Z)
+          </button>
         </div>
       </div>
     );
@@ -240,9 +277,6 @@ export default function App() {
           onShowGuide={() => setShowGuide(true)}
         />
       )}
-
-      {/* Channel List Overlay - Accessible via menu button in Player */}
-      {/* The player now has a menu button that opens the channel list */}
 
       {/* Smart TV Sidebar */}
       <AnimatePresence>
@@ -314,12 +348,12 @@ export default function App() {
                         setShowAdmin(true);
                         setShowSidebar(false);
                       }}
-                      className="w-full p-4 bg-white/10 hover:bg-white/20 rounded-xl transition-all text-left flex items-center gap-4"
+                      className="w-full p-4 bg-orange-500/20 hover:bg-orange-500/30 rounded-xl transition-all text-left flex items-center gap-4 border border-orange-500/30"
                     >
                       <Settings className="w-6 h-6 text-orange-500" />
                       <div>
                         <div className="text-white font-bold text-lg">Admin Panel</div>
-                        <div className="text-white/40 text-sm">Manage channels and content</div>
+                        <div className="text-orange-400/60 text-sm">Manage channels and content</div>
                       </div>
                     </button>
                   )}
@@ -403,7 +437,14 @@ export default function App() {
       {/* Smart TV Remote Control Hint */}
       <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-30 pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
         <div className="bg-black/50 backdrop-blur-md rounded-full px-4 py-2 text-white/40 text-xs">
-          Press Menu for options • ESC to go back
+          Press Menu for options • ESC to go back • Ctrl+Shift+Z for Admin
+        </div>
+      </div>
+
+      {/* Admin Shortcut Hint - For TV Users */}
+      <div className="fixed bottom-20 right-4 z-30 pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
+        <div className="bg-black/50 backdrop-blur-md rounded-lg px-3 py-1.5 text-white/30 text-[10px]">
+          Ctrl + Shift + Z for Admin
         </div>
       </div>
     </div>
