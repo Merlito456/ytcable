@@ -6,11 +6,10 @@ import { Channel, Video } from './types';
 import { Player } from './components/Player';
 import { ChannelList } from './components/ChannelList';
 import { AdminPanel } from './components/AdminPanel';
-import { Tv, LogIn, LogOut, Menu } from 'lucide-react';
+import { TVGuide } from './components/TVGuide'; // Add this import
+import { Tv, LogIn, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError, OperationType } from './lib/error-handler';
-import { cn } from './lib/utils';
-import { TVGuide } from './components/TVGuide';
 
 export default function App() {
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
@@ -22,10 +21,10 @@ export default function App() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [titleTaps, setTitleTaps] = useState(0);
   const [lastClickTime, setLastClickTime] = useState(0);
-  const [showGuide, setShowGuide] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [showGuide, setShowGuide] = useState(false); // Add this state
 
-  // Load channels for the guide
+  // Load channels
   useEffect(() => {
     const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -130,16 +129,18 @@ export default function App() {
     setLastClickTime(now);
   };
 
-  // Show loading state if no channel selected
+  // Show channel selection if no channel selected
   if (!selectedChannel) {
     return (
       <div className="fixed inset-0 bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto p-8">
-          <div className="w-24 h-24 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
-            <Tv className="w-12 h-12 text-white" />
+        <div className="text-center max-w-4xl mx-auto p-8 w-full">
+          <div className="mb-8">
+            <div className="w-24 h-24 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
+              <Tv className="w-12 h-12 text-white" />
+            </div>
+            <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">YouTube Cable</h1>
+            <p className="text-white/60 text-lg">Select a channel to start watching</p>
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">YouTube Cable</h1>
-          <p className="text-white/60 mb-8">Select a channel to start watching</p>
           <ChannelList
             selectedChannelId={null}
             onSelectChannel={setSelectedChannel}
@@ -151,24 +152,25 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 bg-black">
-      {/* Player - Fullscreen */}
+      {/* Player - Fullscreen with modern UI */}
       <Player 
         channel={selectedChannel} 
         videos={videos}
-        onShowGuide={() => setShowGuide(true)}
+        onShowGuide={() => setShowGuide(true)} // Pass the prop
       />
 
-      {/* Channel List Overlay (Only for channel selection) */}
-      {!selectedChannel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95">
-          <div className="w-full max-w-4xl p-8">
-            <h2 className="text-2xl font-bold text-white mb-6 text-center">Select a Channel</h2>
-            <ChannelList
-              selectedChannelId={null}
-              onSelectChannel={setSelectedChannel}
-            />
-          </div>
-        </div>
+      {/* TV Guide */}
+      {showGuide && (
+        <TVGuide
+          currentChannel={selectedChannel}
+          allChannels={channels}
+          videos={videos}
+          onChannelSelect={(channel) => {
+            setSelectedChannel(channel);
+            setShowGuide(false);
+          }}
+          onClose={() => setShowGuide(false)}
+        />
       )}
 
       {/* Admin Panel */}
@@ -220,20 +222,6 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-
-      {/* TV Guide */}
-      {showGuide && (
-        <TVGuide
-          currentChannel={selectedChannel}
-          allChannels={channels}
-          videos={videos}
-          onChannelSelect={(channel) => {
-            setSelectedChannel(channel);
-            setShowGuide(false);
-          }}
-          onClose={() => setShowGuide(false)}
-        />
-      )}
     </div>
   );
 }
