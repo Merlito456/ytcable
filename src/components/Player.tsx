@@ -12,8 +12,8 @@ import {
 interface PlayerProps {
   channel: Channel;
   videos: Video[];
-  allChannels?: Channel[]; // Add all channels for navigation
-  onChannelChange?: (channel: Channel) => void; // Callback for channel change
+  allChannels?: Channel[];
+  onChannelChange?: (channel: Channel) => void;
   onShowGuide?: () => void;
 }
 
@@ -32,15 +32,15 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [manualRetry, setManualRetry] = useState(false);
-  const [videoKey, setVideoKey] = useState(0);
-  const [channelKey, setChannelKey] = useState(0); // Force re-render on channel change
+  const [playerReady, setPlayerReady] = useState(false);
+  const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
   const errorTimeoutRef = useRef<NodeJS.Timeout>();
 
-  // Find current channel index for navigation
+  // Find current channel index
   const currentChannelIndex = allChannels.findIndex(c => c.id === channel.id);
   const hasPrevious = currentChannelIndex > 0;
   const hasNext = currentChannelIndex < allChannels.length - 1;
@@ -50,14 +50,13 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     if (hasPrevious && onChannelChange) {
       const prevChannel = allChannels[currentChannelIndex - 1];
       console.log('Switching to previous channel:', prevChannel.name);
-      onChannelChange(prevChannel);
-      // Reset video playback state
+      // Reset state before channel change
       setPlayback(null);
-      setSkippingVideo(null);
-      setSkipCountdown(0);
+      setPlayerReady(false);
+      setCurrentVideoId('');
       setError(null);
-      setVideoKey(prev => prev + 1);
-      setChannelKey(prev => prev + 1);
+      setSkippingVideo(null);
+      onChannelChange(prevChannel);
     }
   };
 
@@ -66,18 +65,17 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     if (hasNext && onChannelChange) {
       const nextChannel = allChannels[currentChannelIndex + 1];
       console.log('Switching to next channel:', nextChannel.name);
-      onChannelChange(nextChannel);
-      // Reset video playback state
+      // Reset state before channel change
       setPlayback(null);
-      setSkippingVideo(null);
-      setSkipCountdown(0);
+      setPlayerReady(false);
+      setCurrentVideoId('');
       setError(null);
-      setVideoKey(prev => prev + 1);
-      setChannelKey(prev => prev + 1);
+      setSkippingVideo(null);
+      onChannelChange(nextChannel);
     }
   };
 
-  // Auto-hide controls after 3 seconds of inactivity
+  // Auto-hide controls after 3 seconds
   useEffect(() => {
     if (showControls) {
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
@@ -90,7 +88,6 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     };
   }, [showControls]);
 
-  // Show controls on mouse move
   const handleMouseMove = () => {
     setShowControls(true);
   };
@@ -109,7 +106,7 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     };
   }, [skipCountdown, skippingVideo]);
 
-  // Handle fullscreen
+  // Fullscreen handling
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
     
@@ -135,7 +132,7 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Function to skip the current video and play next
+  // Skip current video
   const handleSkipVideo = () => {
     if (!playback?.nextVideo || !videos.length) return;
     
@@ -153,7 +150,7 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     setSkipCountdown(0);
     setError(null);
     setErrorDetails('');
-    setVideoKey(prev => prev + 1);
+    setPlayerReady(false);
   };
 
   // Handle mute/unmute
@@ -163,7 +160,7 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     setIsMuted(newMutedState);
     localStorage.setItem('playerMuted', String(newMutedState));
     
-    if (playerRef.current) {
+    if (playerRef.current && playerReady) {
       try {
         if (newMutedState) {
           playerRef.current.mute();
@@ -186,7 +183,7 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
 
   // Handle retry
   const handleRetry = () => {
-    if (playerRef.current && playback?.currentVideo) {
+    if (playerRef.current && playback?.currentVideo && playerReady) {
       setManualRetry(true);
       setError(null);
       setErrorDetails('');
@@ -259,9 +256,12 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
   // Calculate playback for current channel
   useEffect(() => {
     if (!videos || videos.length === 0) {
+      console.log('No videos available for channel:', channel.name);
       setError('No videos found in this channel');
       return;
     }
+
+    console.log('Calculating playback for channel:', channel.name, 'videos:', videos.length);
 
     const calculatePlayback = () => {
       if (skippingVideo) return;
@@ -299,12 +299,14 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
         }
 
         if (currentVideo) {
-          const videoChanged = playback?.currentVideo?.id !== currentVideo.id;
+          const videoChanged = currentVideoId !== currentVideo.youtubeId;
           setPlayback({ currentVideo, offset, nextVideo });
+          setCurrentVideoId(currentVideo.youtubeId);
           setError(null);
           
           if (videoChanged) {
-            setVideoKey(prev => prev + 1);
+            console.log('Video changed to:', currentVideo.title);
+            setPlayerReady(false);
           }
         }
       } catch (err) {
@@ -318,13 +320,16 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
   }, [channel, videos, skippingVideo]);
 
   const onReady: YouTubeProps['onReady'] = (event) => {
+    console.log('YouTube player ready for video:', playback?.currentVideo?.title);
     playerRef.current = event.target;
+    setPlayerReady(true);
     
     if (playback && !skippingVideo) {
       try {
         event.target.seekTo(playback.offset, true);
         event.target.playVideo();
         
+        // Apply mute state
         if (isMuted) {
           event.target.mute();
         } else {
@@ -342,9 +347,11 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
         const currentTime = event.target.getCurrentTime();
         const diff = Math.abs(currentTime - playback.offset);
         if (diff > 2) {
+          console.log('Syncing video, diff:', diff);
           event.target.seekTo(playback.offset, true);
         }
         
+        // Ensure mute state is correct
         if (isMuted !== event.target.isMuted()) {
           if (isMuted) {
             event.target.mute();
@@ -411,7 +418,10 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
             </div>
           </div>
           <p className="text-white/60 font-medium tracking-wide">
-            {skippingVideo ? 'Skipping to next video...' : 'Loading your experience...'}
+            {skippingVideo ? 'Skipping to next video...' : `Loading ${channel.name}...`}
+          </p>
+          <p className="text-white/40 text-xs mt-2">
+            {videos.length} videos available
           </p>
         </div>
       </div>
@@ -427,7 +437,7 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
       {/* YouTube Player */}
       <div className="absolute inset-0">
         <YouTube
-          key={`${channelKey}-${videoKey}`}
+          key={currentVideoId}
           videoId={playback.currentVideo.youtubeId}
           opts={{
             width: '100%',
