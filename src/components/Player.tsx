@@ -1,279 +1,465 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import YouTube, { YouTubeProps } from 'react-youtube';
 import { Channel, Video, PlaybackState } from '../types';
-import { Search, Tv, Clock, Calendar, ChevronRight, ChevronLeft, X, Menu, Volume2, VolumeX, Maximize2, Minimize2, Film, Play, Heart, Share2, Info } from 'lucide-react';
+import { 
+  Volume2, VolumeX, X, Tv, Clock, Play, 
+  SkipForward, AlertCircle, Menu, Maximize2, 
+  Minimize2, Film, Heart, Share2, Info, 
+  ChevronRight, ChevronLeft, ThumbsUp, 
+  ThumbsDown, Bookmark, MoreHorizontal
+} from 'lucide-react';
 
-interface TVGuideProps {
-  currentChannel: Channel;
-  allChannels: Channel[];
+interface PlayerProps {
+  channel: Channel;
   videos: Video[];
-  onChannelSelect: (channel: Channel) => void;
-  onClose: () => void;
+  onShowGuide?: () => void;
 }
 
-export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, onClose }: TVGuideProps) {
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('3:00 pm');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+export function Player({ channel, videos, onShowGuide }: PlayerProps) {
+  const [playback, setPlayback] = useState<PlaybackState | null>(null);
+  const [isMuted, setIsMuted] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
-  const [showInfo, setShowInfo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [skippingVideo, setSkippingVideo] = useState<Video | null>(null);
+  const [skipCountdown, setSkipCountdown] = useState<number>(0);
+  const [showControls, setShowControls] = useState(true);
+  const [isLiked, setIsLiked] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const playerRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout>();
+  const skipTimeoutRef = useRef<NodeJS.Timeout>();
 
-  // Update current time every minute
+  // Auto-hide controls after 3 seconds of inactivity
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
+    if (showControls) {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    }
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [showControls]);
+
+  // Show controls on mouse move
+  const handleMouseMove = () => {
+    setShowControls(true);
+  };
+
+  // Skip countdown timer
+  useEffect(() => {
+    if (skipCountdown > 0) {
+      skipTimeoutRef.current = setTimeout(() => {
+        setSkipCountdown(skipCountdown - 1);
+      }, 1000);
+    } else if (skipCountdown === 0 && skippingVideo) {
+      handleSkipVideo();
+    }
+    return () => {
+      if (skipTimeoutRef.current) clearTimeout(skipTimeoutRef.current);
+    };
+  }, [skipCountdown, skippingVideo]);
+
+  // Handle fullscreen
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!isFullscreen) {
+      if (containerRef.current.requestFullscreen) {
+        containerRef.current.requestFullscreen();
+        setIsFullscreen(true);
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Time slots for the guide
-  const timeSlots = [
-    '12:00 pm', '1:00 pm', '2:00 pm', '3:00 pm', '4:00 pm', '5:00 pm', 
-    '6:00 pm', '7:00 pm', '8:00 pm', '9:00 pm', '10:00 pm', '11:00 pm'
-  ];
-
-  // Days of the week
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const today = new Date();
-  const nextDays = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(today.getDate() + i);
-    return date;
-  });
-
-  // Format date for display
-  const formatDate = (date: Date) => {
-    return `${days[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`;
-  };
-
-  // Generate mock program data based on actual channel
-  const getChannelPrograms = (channel: Channel) => {
-    const programs = [];
-    const currentHour = currentTime.getHours();
-    const currentMinute = currentTime.getMinutes();
+  // Function to skip the current video and play next
+  const handleSkipVideo = () => {
+    if (!playback?.nextVideo || !videos.length) return;
     
-    for (let i = 0; i < timeSlots.length; i++) {
-      const slotTime = timeSlots[i];
-      const isCurrentSlot = slotTime === selectedTimeSlot;
+    const currentVideoIndex = videos.findIndex(v => v.id === playback.currentVideo?.id);
+    const nextVideoIndex = (currentVideoIndex + 1) % videos.length;
+    const nextVideo = videos[nextVideoIndex];
+    
+    setPlayback({
+      currentVideo: nextVideo,
+      offset: 0,
+      nextVideo: videos[(nextVideoIndex + 1) % videos.length],
+    });
+    
+    setSkippingVideo(null);
+    setSkipCountdown(0);
+  };
+
+  // Handle mute/unmute
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (playerRef.current) {
+      try {
+        if (isMuted) {
+          playerRef.current.unMute();
+          setIsMuted(false);
+        } else {
+          playerRef.current.mute();
+          setIsMuted(true);
+        }
+      } catch (err) {
+        console.error('Error toggling mute:', err);
+      }
+    }
+  };
+
+  // Handle video errors
+  const onError: YouTubeProps['onError'] = (event) => {
+    if (playback?.currentVideo && !skippingVideo) {
+      setSkippingVideo(playback.currentVideo);
+      setSkipCountdown(5);
+      setError(`Video unavailable. Skipping in 5 seconds...`);
+      setTimeout(() => setError(null), 5000);
+    }
+  };
+
+  const manualSkip = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (skippingVideo) {
+      handleSkipVideo();
+    } else if (playback?.nextVideo) {
+      setSkippingVideo(playback.currentVideo);
+      handleSkipVideo();
+    }
+  };
+
+  useEffect(() => {
+    if (!videos || videos.length === 0) {
+      setError('No videos found in this channel');
+      return;
+    }
+
+    const calculatePlayback = () => {
+      if (skippingVideo) return;
       
-      programs.push({
-        title: `${channel.name} Program`,
-        description: channel.description || `${channel.name} - 24/7 streaming of curated content`,
-        duration: '1 hr',
-        time: slotTime,
-        isLive: isCurrentSlot && slotTime.includes(currentHour.toString()),
-        hd: true,
-        channelId: channel.id,
-      });
+      try {
+        const now = Date.now();
+        const elapsedMs = now - channel.startTime;
+        const elapsedSeconds = elapsedMs / 1000;
+
+        const totalDuration = videos.reduce((acc, v) => acc + (v.duration || 0), 0);
+        
+        if (totalDuration === 0) {
+          setError('Invalid video durations');
+          return;
+        }
+
+        const currentCycleElapsed = elapsedSeconds % totalDuration;
+
+        let accumulated = 0;
+        let currentVideo: Video | null = null;
+        let offset = 0;
+        let nextVideo: Video | null = null;
+
+        for (let i = 0; i < videos.length; i++) {
+          const v = videos[i];
+          const duration = v.duration || 0;
+          
+          if (currentCycleElapsed < accumulated + duration) {
+            currentVideo = v;
+            offset = currentCycleElapsed - accumulated;
+            nextVideo = videos[(i + 1) % videos.length];
+            break;
+          }
+          accumulated += duration;
+        }
+
+        if (currentVideo) {
+          setPlayback({ currentVideo, offset, nextVideo });
+          setError(null);
+        }
+      } catch (err) {
+        console.error('Error calculating playback:', err);
+      }
+    };
+
+    calculatePlayback();
+    const interval = setInterval(calculatePlayback, 1000);
+    return () => clearInterval(interval);
+  }, [channel, videos, skippingVideo]);
+
+  const onReady: YouTubeProps['onReady'] = (event) => {
+    playerRef.current = event.target;
+    
+    if (playback && !skippingVideo) {
+      try {
+        event.target.seekTo(playback.offset, true);
+        event.target.playVideo();
+        if (isMuted) event.target.mute();
+      } catch (err) {
+        console.error('Error in onReady:', err);
+      }
     }
-    return programs;
   };
 
-  // Filter channels based on search
-  const filteredChannels = allChannels.filter(channel => 
-    channel.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    channel.description?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Handle channel selection
-  const handleChannelSelect = (channel: Channel) => {
-    setSelectedChannel(channel);
-    setShowInfo(true);
-  };
-
-  // Handle watch now
-  const handleWatchNow = () => {
-    if (selectedChannel) {
-      onChannelSelect(selectedChannel);
-      onClose();
+  const onStateChange: YouTubeProps['onStateChange'] = (event) => {
+    try {
+      if (event.data === YouTube.PlayerState.PLAYING && playback && !skippingVideo) {
+        const currentTime = event.target.getCurrentTime();
+        const diff = Math.abs(currentTime - playback.offset);
+        if (diff > 2) {
+          event.target.seekTo(playback.offset, true);
+        }
+      }
+      
+      if (event.data === YouTube.PlayerState.PAUSED && !skippingVideo) {
+        event.target.playVideo();
+      }
+    } catch (err) {
+      console.error('Error in onStateChange:', err);
     }
   };
+
+  const formatDuration = (seconds: number) => {
+    if (!seconds || seconds <= 0) return '0:00';
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getCurrentProgress = () => {
+    if (!playback?.currentVideo || !videos.length || skippingVideo) return 0;
+    
+    try {
+      const now = Date.now();
+      const elapsedMs = now - channel.startTime;
+      const elapsedSeconds = elapsedMs / 1000;
+      const totalDuration = videos.reduce((acc, v) => acc + (v.duration || 0), 0);
+      const currentCycleElapsed = elapsedSeconds % totalDuration;
+      
+      let accumulated = 0;
+      for (const v of videos) {
+        const duration = v.duration || 0;
+        if (currentCycleElapsed < accumulated + duration) {
+          const videoOffset = currentCycleElapsed - accumulated;
+          return (videoOffset / duration) * 100;
+        }
+        accumulated += duration;
+      }
+    } catch (err) {
+      console.error('Error calculating progress:', err);
+    }
+    return 0;
+  };
+
+  // Loading state
+  if (!playback || !playback.currentVideo || skippingVideo) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative">
+            <div className="w-20 h-20 border-4 border-orange-500/30 border-t-orange-500 rounded-full animate-spin mx-auto mb-6" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Tv className="w-8 h-8 text-orange-500 animate-pulse" />
+            </div>
+          </div>
+          <p className="text-white/60 font-medium tracking-wide">
+            {skippingVideo ? 'Skipping to next video...' : 'Loading your experience...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 bg-black z-[200] overflow-hidden">
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black to-transparent z-10">
-        <div className="flex items-center justify-between p-4 md:p-6">
+    <div 
+      ref={containerRef}
+      className="fixed inset-0 bg-black"
+      onMouseMove={handleMouseMove}
+    >
+      {/* YouTube Player */}
+      <div className="absolute inset-0">
+        <YouTube
+          videoId={playback.currentVideo.youtubeId}
+          opts={{
+            width: '100%',
+            height: '100%',
+            playerVars: {
+              autoplay: 1,
+              controls: 0,
+              disablekb: 1,
+              fs: 0,
+              modestbranding: 1,
+              rel: 0,
+              showinfo: 0,
+              mute: 1,
+              iv_load_policy: 3,
+              autohide: 1
+            },
+          }}
+          onReady={onReady}
+          onStateChange={onStateChange}
+          onError={onError}
+          className="w-full h-full"
+        />
+      </div>
+
+      {/* Gradient Overlays */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/40 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/20 via-transparent to-black/20 pointer-events-none" />
+
+      {/* Top Bar */}
+      <div className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-6 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-lg">
+                <Film className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-white font-bold text-xl tracking-tight">{channel.name}</h1>
+                <p className="text-white/50 text-xs">24/7 Live Streaming</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* TV Guide Button */}
+            {onShowGuide && (
+              <button
+                onClick={() => onShowGuide()}
+                className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
+                title="TV Guide"
+              >
+                <Menu className="w-5 h-5 text-white" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Center Info (Now Playing) */}
+      <div className={`absolute bottom-32 left-12 right-12 transition-all duration-300 ${showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <div className="max-w-2xl">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-1 h-6 bg-gradient-to-t from-orange-500 to-red-500 rounded-full" />
+            <p className="text-orange-500 text-xs font-bold uppercase tracking-wider">Now Playing</p>
+          </div>
+          <h2 className="text-white text-3xl md:text-4xl font-bold mb-2 line-clamp-2">
+            {playback.currentVideo.title}
+          </h2>
+          {playback.nextVideo && (
+            <p className="text-white/50 text-sm flex items-center gap-2">
+              <span>Up Next:</span>
+              <span className="text-white/70">{playback.nextVideo.title}</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom Controls */}
+      <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-6 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Progress Bar */}
+        <div className="max-w-6xl mx-auto mb-4">
+          <div className="relative group">
+            <div className="h-1 bg-white/20 rounded-full overflow-hidden cursor-pointer">
+              <div 
+                className="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-full transition-all duration-1000 relative"
+                style={{ width: `${getCurrentProgress()}%` }}
+              >
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" />
+              </div>
+            </div>
+            <div className="flex justify-between text-white/40 text-xs mt-2">
+              <span>{formatDuration(playback.offset)}</span>
+              <span>{formatDuration(playback.currentVideo.duration)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
           <div className="flex items-center gap-4">
             <button
-              onClick={onClose}
-              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all"
+              onClick={toggleMute}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
             >
-              <X className="w-5 h-5 text-white" />
+              {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
             </button>
-            <div className="flex items-center gap-2">
-              <Tv className="w-6 h-6 text-orange-500" />
-              <h1 className="text-white font-bold text-xl">TV Guide</h1>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Current Time */}
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/10 rounded-lg">
-              <Clock className="w-4 h-4 text-white/60" />
-              <span className="text-white text-sm">
-                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-            
-            {/* Search Button */}
             <button
-              onClick={() => setShowSearch(!showSearch)}
-              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all"
+              onClick={manualSkip}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
             >
-              <Search className="w-5 h-5 text-white" />
+              <SkipForward className="w-5 h-5 text-white" />
+            </button>
+            <div className="h-6 w-px bg-white/20 mx-2" />
+            <button
+              onClick={() => setIsLiked(!isLiked)}
+              className={`p-2 rounded-full transition-all backdrop-blur-sm border border-white/10 ${isLiked ? 'bg-orange-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}
+            >
+              <ThumbsUp className="w-4 h-4" />
+            </button>
+            <button
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
+            >
+              <ThumbsDown className="w-4 h-4 text-white" />
+            </button>
+            <button
+              onClick={() => setIsBookmarked(!isBookmarked)}
+              className={`p-2 rounded-full transition-all backdrop-blur-sm border border-white/10 ${isBookmarked ? 'bg-orange-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}
+            >
+              <Bookmark className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowInfoModal(true)}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
+            >
+              <Info className="w-5 h-5 text-white" />
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm border border-white/10"
+            >
+              {isFullscreen ? <Minimize2 className="w-5 h-5 text-white" /> : <Maximize2 className="w-5 h-5 text-white" />}
             </button>
           </div>
         </div>
-
-        {/* Search Bar */}
-        {showSearch && (
-          <div className="px-4 md:px-6 pb-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/40" />
-              <input
-                type="text"
-                placeholder="Search channels..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white/10 border border-white/20 rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                autoFocus
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Date Navigation */}
-        <div className="px-4 md:px-6 pb-2 overflow-x-auto scrollbar-hide">
-          <div className="flex gap-2 min-w-max">
-            {nextDays.map((date, idx) => {
-              const isSelected = date.toDateString() === selectedDate.toDateString();
-              return (
-                <button
-                  key={idx}
-                  onClick={() => setSelectedDate(date)}
-                  className={`px-4 py-2 rounded-lg transition-all whitespace-nowrap ${
-                    isSelected 
-                      ? 'bg-orange-500 text-white' 
-                      : 'bg-white/10 text-white/80 hover:bg-white/20'
-                  }`}
-                >
-                  <div className="text-xs font-medium">{days[date.getDay()]}</div>
-                  <div className="text-sm font-bold">{date.getDate()}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
-      {/* Main Guide Content */}
-      <div className="pt-32 pb-6 h-full overflow-y-auto">
-        <div className="px-4 md:px-6">
-          {/* Time Header */}
-          <div className="flex border-b border-white/10">
-            <div className="w-32 md:w-48 flex-shrink-0" />
-            <div className="flex-1 flex">
-              {timeSlots.map((slot, idx) => (
-                <div
-                  key={idx}
-                  className={`flex-1 text-center py-2 text-xs font-medium ${
-                    slot === selectedTimeSlot ? 'text-orange-500' : 'text-white/60'
-                  }`}
-                >
-                  {slot}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Channel List */}
-          <div className="divide-y divide-white/5">
-            {filteredChannels.map((channel) => {
-              const programs = getChannelPrograms(channel);
-              const isCurrent = currentChannel.id === channel.id;
-              
-              return (
-                <div
-                  key={channel.id}
-                  className={`flex hover:bg-white/5 transition-colors cursor-pointer ${
-                    isCurrent ? 'bg-orange-500/10' : ''
-                  }`}
-                  onClick={() => handleChannelSelect(channel)}
-                >
-                  {/* Channel Info */}
-                  <div className="w-32 md:w-48 flex-shrink-0 py-3 pr-4">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        isCurrent ? 'bg-orange-500' : 'bg-white/10'
-                      }`}>
-                        <Tv className={`w-4 h-4 ${isCurrent ? 'text-white' : 'text-white/60'}`} />
-                      </div>
-                      <div>
-                        <div className="font-bold text-white text-sm">{channel.name}</div>
-                        <div className="text-[10px] text-white/40">24/7 Live</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Programs */}
-                  <div className="flex-1 flex">
-                    {programs.map((program, idx) => (
-                      <div
-                        key={idx}
-                        className={`flex-1 p-2 border-l border-white/5 transition-all hover:bg-white/10 ${
-                          program.isLive ? 'bg-orange-500/5' : ''
-                        }`}
-                      >
-                        <div className="text-xs font-medium text-white line-clamp-2">
-                          {program.title}
-                        </div>
-                        <div className="text-[10px] text-white/40 mt-1">
-                          {program.duration} • {program.hd && 'HD'}
-                        </div>
-                        {program.isLive && (
-                          <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 bg-red-500 rounded text-[8px] font-bold text-white">
-                            <div className="w-1 h-1 bg-white rounded-full animate-pulse" />
-                            LIVE
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Now Playing Section */}
-          <div className="mt-6 p-4 bg-gradient-to-r from-orange-500/10 to-transparent rounded-lg border border-orange-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
-              <span className="text-orange-500 text-xs font-bold uppercase tracking-wider">NOW PLAYING</span>
-            </div>
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <div>
-                <h3 className="text-white font-bold text-lg">{currentChannel.name}</h3>
-                <p className="text-white/60 text-sm">{currentChannel.description || '24/7 Live Stream'}</p>
-              </div>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all text-sm font-medium"
-              >
-                Back to Watching
-              </button>
-            </div>
+      {/* Error Toast */}
+      {error && (
+        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-red-500/90 backdrop-blur-md text-white px-4 py-2 rounded-lg text-sm z-50 animate-in fade-in slide-in-from-top duration-300 shadow-xl">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            <span>{error}</span>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Channel Info Modal */}
-      {showInfo && selectedChannel && (
+      {/* Info Modal */}
+      {showInfoModal && (
         <>
-          <div className="fixed inset-0 bg-black/80 z-50" onClick={() => setShowInfo(false)} />
+          <div className="fixed inset-0 bg-black/80 z-50" onClick={() => setShowInfoModal(false)} />
           <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-lg bg-gradient-to-br from-gray-900 to-black rounded-2xl border border-white/10 p-6 z-50 animate-in zoom-in-95 duration-200 shadow-2xl">
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3">
@@ -281,44 +467,26 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                   <Tv className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-white font-bold text-lg">{selectedChannel.name}</h3>
+                  <h3 className="text-white font-bold text-lg">{channel.name}</h3>
                   <p className="text-white/40 text-xs">24/7 Live Channel</p>
                 </div>
               </div>
-              <button onClick={() => setShowInfo(false)} className="text-white/60 hover:text-white">
+              <button onClick={() => setShowInfoModal(false)} className="text-white/60 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
             <p className="text-white/70 text-sm mb-4 leading-relaxed">
-              {selectedChannel.description || `${selectedChannel.name} - 24/7 streaming of curated content including movies, documentaries, and entertainment.`}
+              {channel.description || 'No description available'}
             </p>
-            
-            <div className="flex items-center gap-4 text-white/40 text-xs border-t border-white/10 pt-4 mb-4">
+            <div className="flex items-center gap-4 text-white/40 text-xs border-t border-white/10 pt-4">
               <div className="flex items-center gap-1">
                 <Play className="w-3 h-3" />
-                <span>24/7 Live</span>
+                <span>{videos.length} videos</span>
               </div>
               <div className="flex items-center gap-1">
                 <Clock className="w-3 h-3" />
-                <span>Synchronized Stream</span>
+                <span>24/7 Live</span>
               </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleWatchNow}
-                className="flex-1 bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition-all flex items-center justify-center gap-2"
-              >
-                <Play className="w-4 h-4" />
-                Watch Now
-              </button>
-              <button
-                onClick={() => setShowInfo(false)}
-                className="flex-1 bg-white/10 text-white py-2 rounded-lg hover:bg-white/20 transition-all"
-              >
-                Cancel
-              </button>
             </div>
           </div>
         </>
@@ -326,3 +494,5 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     </div>
   );
 }
+
+export default Player;
