@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import YouTube, { YouTubeProps } from 'react-youtube';
 import { Channel, Video, PlaybackState } from '../types';
-import { Volume2, VolumeX, X, List, Tv, Clock, Users, Play, SkipForward, AlertCircle, Menu } from 'lucide-react';
+import { 
+  Volume2, VolumeX, X, List, Tv, Clock, Play, 
+  SkipForward, AlertCircle, Menu, Maximize2, 
+  Minimize2, Film, Heart, Share2, Info 
+} from 'lucide-react';
 
 interface PlayerProps {
   channel: Channel;
@@ -11,12 +15,34 @@ interface PlayerProps {
 export function Player({ channel, videos }: PlayerProps) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [isMuted, setIsMuted] = useState(true);
-  const [showChannelList, setShowChannelList] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [skippingVideo, setSkippingVideo] = useState<Video | null>(null);
   const [skipCountdown, setSkipCountdown] = useState<number>(0);
+  const [showControls, setShowControls] = useState(true);
   const playerRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Auto-hide controls after 3 seconds of inactivity
+  useEffect(() => {
+    if (showControls) {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    }
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [showControls]);
+
+  // Show controls on mouse move
+  const handleMouseMove = () => {
+    setShowControls(true);
+  };
 
   // Skip countdown timer
   useEffect(() => {
@@ -32,11 +58,35 @@ export function Player({ channel, videos }: PlayerProps) {
     };
   }, [skipCountdown, skippingVideo]);
 
+  // Handle fullscreen
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!isFullscreen) {
+      if (containerRef.current.requestFullscreen) {
+        containerRef.current.requestFullscreen();
+        setIsFullscreen(true);
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   // Function to skip the current video and play next
   const handleSkipVideo = () => {
     if (!playback?.nextVideo || !videos.length) return;
-    
-    console.log(`Skipping video: ${playback.currentVideo?.title}`);
     
     const currentVideoIndex = videos.findIndex(v => v.id === playback.currentVideo?.id);
     const nextVideoIndex = (currentVideoIndex + 1) % videos.length;
@@ -55,18 +105,14 @@ export function Player({ channel, videos }: PlayerProps) {
   // Handle mute/unmute
   const toggleMute = (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Toggle mute clicked, current state:', isMuted);
-    
     if (playerRef.current) {
       try {
         if (isMuted) {
           playerRef.current.unMute();
           setIsMuted(false);
-          console.log('Unmuted successfully');
         } else {
           playerRef.current.mute();
           setIsMuted(true);
-          console.log('Muted successfully');
         }
       } catch (err) {
         console.error('Error toggling mute:', err);
@@ -77,40 +123,14 @@ export function Player({ channel, videos }: PlayerProps) {
   // Handle video errors
   const onError: YouTubeProps['onError'] = (event) => {
     const errorCode = event.data;
-    let errorMessage = '';
-    
-    switch (errorCode) {
-      case 2:
-        errorMessage = 'Invalid video ID';
-        break;
-      case 5:
-        errorMessage = 'Video not available (HTML5 player error)';
-        break;
-      case 100:
-        errorMessage = 'Video not found or removed';
-        break;
-      case 101:
-      case 150:
-        errorMessage = 'Video not available (embedding disabled)';
-        break;
-      default:
-        errorMessage = `Video error (code: ${errorCode})`;
-    }
-    
-    console.error(`YouTube Error: ${errorMessage}`, event);
-    
     if (playback?.currentVideo && !skippingVideo) {
       setSkippingVideo(playback.currentVideo);
       setSkipCountdown(5);
-      setError(`Video unavailable: "${playback.currentVideo.title}". Skipping in 5 seconds...`);
-      
-      setTimeout(() => {
-        setError(null);
-      }, 5000);
+      setError(`Video unavailable. Skipping in 5 seconds...`);
+      setTimeout(() => setError(null), 5000);
     }
   };
 
-  // Manual skip button handler
   const manualSkip = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (skippingVideo) {
@@ -121,24 +141,10 @@ export function Player({ channel, videos }: PlayerProps) {
     }
   };
 
-  // Channel list toggle
-  const toggleChannelList = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowChannelList(!showChannelList);
-  };
-
   useEffect(() => {
-    console.log('Player mounted with videos:', videos.length);
-    console.log('Channel:', channel);
-    
     if (!videos || videos.length === 0) {
       setError('No videos found in this channel');
       return;
-    }
-
-    const invalidVideos = videos.filter(v => !v.duration || v.duration <= 0);
-    if (invalidVideos.length > 0) {
-      console.warn('Videos with invalid durations:', invalidVideos);
     }
 
     const calculatePlayback = () => {
@@ -179,12 +185,9 @@ export function Player({ channel, videos }: PlayerProps) {
         if (currentVideo) {
           setPlayback({ currentVideo, offset, nextVideo });
           setError(null);
-        } else {
-          setError('Failed to determine current video');
         }
       } catch (err) {
         console.error('Error calculating playback:', err);
-        setError('Playback calculation error');
       }
     };
 
@@ -195,18 +198,12 @@ export function Player({ channel, videos }: PlayerProps) {
 
   const onReady: YouTubeProps['onReady'] = (event) => {
     playerRef.current = event.target;
-    console.log('YouTube player ready');
     
     if (playback && !skippingVideo) {
       try {
         event.target.seekTo(playback.offset, true);
         event.target.playVideo();
-        
-        if (isMuted) {
-          event.target.mute();
-        } else {
-          event.target.unMute();
-        }
+        if (isMuted) event.target.mute();
       } catch (err) {
         console.error('Error in onReady:', err);
       }
@@ -219,25 +216,12 @@ export function Player({ channel, videos }: PlayerProps) {
         const currentTime = event.target.getCurrentTime();
         const diff = Math.abs(currentTime - playback.offset);
         if (diff > 2) {
-          console.log('Syncing video, diff:', diff);
           event.target.seekTo(playback.offset, true);
-        }
-        
-        if (isMuted !== event.target.isMuted()) {
-          if (isMuted) {
-            event.target.mute();
-          } else {
-            event.target.unMute();
-          }
         }
       }
       
       if (event.data === YouTube.PlayerState.PAUSED && !skippingVideo) {
         event.target.playVideo();
-      }
-      
-      if (event.data === YouTube.PlayerState.ENDED && !skippingVideo) {
-        console.log('Video ended naturally');
       }
     } catch (err) {
       console.error('Error in onStateChange:', err);
@@ -281,62 +265,14 @@ export function Player({ channel, videos }: PlayerProps) {
     return 0;
   };
 
-  // Show error state with skip option
-  if (error && skippingVideo) {
-    return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center text-white z-50">
-        <div className="flex flex-col items-center gap-4 max-w-md text-center p-6">
-          <AlertCircle className="w-16 h-16 text-orange-500 animate-pulse" />
-          <p className="text-lg font-bold text-white">Video Unavailable</p>
-          <p className="text-sm text-white/60">{error}</p>
-          <div className="flex items-center gap-2 text-orange-500">
-            <SkipForward className="w-4 h-4 animate-pulse" />
-            <span className="text-sm">Skipping in {skipCountdown} seconds...</span>
-          </div>
-          <button
-            onClick={manualSkip}
-            className="mt-4 px-6 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-500 transition-colors flex items-center gap-2"
-          >
-            <SkipForward className="w-4 h-4" />
-            Skip Now
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && !skippingVideo) {
-    return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center text-white z-50">
-        <div className="flex flex-col items-center gap-4 max-w-md text-center p-6">
-          <AlertCircle className="w-16 h-16 text-orange-500" />
-          <p className="text-lg font-bold text-white">Channel Error</p>
-          <p className="text-sm text-white/60">{error}</p>
-          <p className="text-xs text-white/40 mt-4">
-            Videos: {videos.length} • Channel: {channel.name}
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-500 transition-colors"
-          >
-            Reload Page
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Show loading state
+  // Loading state
   if (!playback || !playback.currentVideo || skippingVideo) {
     return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center text-white z-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-black uppercase tracking-widest text-white/40">
-            {skippingVideo ? 'Skipping to next video...' : 'Tuning Channel...'}
-          </p>
-          <p className="text-xs text-white/20">
-            {videos.length} video{videos.length !== 1 ? 's' : ''} available
+      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white/60 font-medium">
+            {skippingVideo ? 'Skipping to next video...' : 'Loading your experience...'}
           </p>
         </div>
       </div>
@@ -344,7 +280,11 @@ export function Player({ channel, videos }: PlayerProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black overflow-hidden">
+    <div 
+      ref={containerRef}
+      className="fixed inset-0 bg-black"
+      onMouseMove={handleMouseMove}
+    >
       {/* YouTube Player */}
       <div className="absolute inset-0">
         <YouTube
@@ -372,95 +312,125 @@ export function Player({ channel, videos }: PlayerProps) {
         />
       </div>
 
-      {/* Menu Button - Opens Channel List */}
-      <button
-        onClick={toggleChannelList}
-        className="fixed top-6 left-6 z-[100] bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 shadow-lg"
-        title="Menu"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
+      {/* Gradient Overlay for better text visibility */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
 
-      {/* Channel List Sidebar with Controls */}
-      {showChannelList && (
+      {/* Video Controls Overlay */}
+      <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-6 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Progress Bar */}
+        <div className="max-w-4xl mx-auto mb-4">
+          <div className="h-1 bg-white/20 rounded-full overflow-hidden cursor-pointer group">
+            <div 
+              className="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-full transition-all duration-1000 relative"
+              style={{ width: `${getCurrentProgress()}%` }}
+            >
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </div>
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex items-center justify-between max-w-4xl mx-auto">
+          <div className="flex items-center gap-4">
+            {/* Channel Info */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center">
+                <Tv className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-white font-bold text-sm">{channel.name}</h3>
+                <p className="text-white/50 text-xs">Live 24/7</p>
+              </div>
+            </div>
+
+            {/* Now Playing */}
+            <div className="hidden md:block border-l border-white/20 pl-4 ml-2">
+              <p className="text-white/60 text-xs uppercase tracking-wider">NOW PLAYING</p>
+              <p className="text-white text-sm font-medium line-clamp-1 max-w-md">
+                {playback.currentVideo.title}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Mute Button */}
+            <button
+              onClick={toggleMute}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm"
+            >
+              {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
+            </button>
+
+            {/* Skip Button */}
+            <button
+              onClick={manualSkip}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm"
+              title="Skip to next video"
+            >
+              <SkipForward className="w-5 h-5 text-white" />
+            </button>
+
+            {/* Menu Button */}
+            <button
+              onClick={() => setShowSidebar(!showSidebar)}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm"
+            >
+              <Menu className="w-5 h-5 text-white" />
+            </button>
+
+            {/* Fullscreen Button */}
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all backdrop-blur-sm"
+            >
+              {isFullscreen ? <Minimize2 className="w-5 h-5 text-white" /> : <Maximize2 className="w-5 h-5 text-white" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Error Toast */}
+      {error && (
+        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-red-500/90 backdrop-blur-md text-white px-4 py-2 rounded-lg text-sm z-50 animate-in fade-in slide-in-from-top duration-300">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            <span>{error}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Sidebar */}
+      {showSidebar && (
         <>
           <div 
             className="fixed inset-0 bg-black/60 z-50 transition-opacity"
-            onClick={toggleChannelList}
+            onClick={() => setShowSidebar(false)}
           />
-          <div className="fixed left-0 top-0 bottom-0 w-80 md:w-96 bg-black/95 backdrop-blur-xl border-r border-white/10 z-[60] shadow-2xl animate-in slide-in-from-left duration-300 overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b border-white/10 sticky top-0 bg-black/95 backdrop-blur-xl z-10">
-              <div className="flex items-center gap-2">
-                <Tv className="w-5 h-5 text-orange-500" />
-                <h3 className="text-white font-bold text-sm">Channel Controls</h3>
+          <div className="fixed right-0 top-0 bottom-0 w-96 bg-black/95 backdrop-blur-xl border-l border-white/10 z-[60] shadow-2xl animate-in slide-in-from-right duration-300 overflow-y-auto">
+            <div className="sticky top-0 bg-black/95 backdrop-blur-xl border-b border-white/10 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Film className="w-5 h-5 text-orange-500" />
+                  <h3 className="text-white font-bold">Channel Info</h3>
+                </div>
+                <button
+                  onClick={() => setShowSidebar(false)}
+                  className="text-white/60 hover:text-white p-1 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button
-                onClick={toggleChannelList}
-                className="text-white/60 hover:text-white p-1 rounded-lg transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
             
             <div className="p-4 space-y-6">
-              {/* Now Playing Progress Bar - Always Visible */}
-              <div className="bg-orange-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
-                  <p className="text-orange-500 text-xs font-bold uppercase tracking-wider">
-                    NOW PLAYING
-                  </p>
+              {/* Channel Header */}
+              <div className="bg-gradient-to-br from-orange-500/10 to-red-500/10 rounded-xl p-6 border border-white/10">
+                <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Tv className="w-8 h-8 text-white" />
                 </div>
-                <p className="text-white font-semibold text-sm line-clamp-2 mb-2">
-                  {playback.currentVideo.title}
-                </p>
-                {/* Progress Bar */}
-                <div className="mt-2">
-                  <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-orange-500 rounded-full transition-all duration-1000"
-                      style={{ width: `${getCurrentProgress()}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-white/40 text-[10px] mt-1">
-                    <span>{formatDuration(playback.offset)}</span>
-                    <span>{formatDuration(playback.currentVideo.duration)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Control Buttons Section */}
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white/60 text-xs font-bold uppercase tracking-wider mb-3">Audio Controls</h4>
-                <div className="flex gap-3">
-                  <button
-                    onClick={toggleMute}
-                    className="flex-1 bg-orange-600 text-white p-3 rounded-xl hover:bg-orange-500 transition-all flex items-center justify-center gap-2"
-                    title={isMuted ? "Unmute" : "Mute"}
-                  >
-                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                    <span className="text-sm font-medium">{isMuted ? "Unmute" : "Mute"}</span>
-                  </button>
-                  
-                  <button
-                    onClick={manualSkip}
-                    className="flex-1 bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-500 transition-all flex items-center justify-center gap-2"
-                    title="Skip to next video"
-                  >
-                    <SkipForward className="w-5 h-5" />
-                    <span className="text-sm font-medium">Skip</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Channel Details */}
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white/60 text-xs font-bold uppercase tracking-wider mb-3">Channel Info</h4>
-                <h3 className="text-white font-bold text-lg mb-1">{channel.name}</h3>
-                <p className="text-white/60 text-sm mb-3">
-                  {channel.description || 'No description available'}
-                </p>
-                <div className="flex items-center gap-4 text-white/40 text-xs">
+                <h2 className="text-white text-xl font-bold text-center mb-2">{channel.name}</h2>
+                <p className="text-white/60 text-sm text-center">{channel.description || 'No description available'}</p>
+                <div className="flex items-center justify-center gap-4 mt-4 text-white/40 text-xs">
                   <div className="flex items-center gap-1">
                     <Play className="w-3 h-3" />
                     <span>{videos.length} videos</span>
@@ -472,43 +442,69 @@ export function Player({ channel, videos }: PlayerProps) {
                 </div>
               </div>
 
-              {/* Up Next Preview */}
+              {/* Now Playing Section */}
+              <div className="bg-white/5 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                  <p className="text-orange-500 text-xs font-bold uppercase tracking-wider">NOW PLAYING</p>
+                </div>
+                <p className="text-white font-semibold text-sm mb-3">{playback.currentVideo.title}</p>
+                <div className="h-1 bg-white/20 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-full transition-all duration-1000"
+                    style={{ width: `${getCurrentProgress()}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-white/40 text-xs mt-2">
+                  <span>{formatDuration(playback.offset)}</span>
+                  <span>{formatDuration(playback.currentVideo.duration)}</span>
+                </div>
+              </div>
+
+              {/* Up Next */}
               {playback.nextVideo && (
                 <div className="bg-white/5 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <SkipForward className="w-3 h-3 text-white/40" />
-                    <p className="text-white/40 text-xs font-bold uppercase tracking-wider">
-                      UP NEXT
-                    </p>
+                    <p className="text-white/40 text-xs font-bold uppercase tracking-wider">UP NEXT</p>
                   </div>
-                  <p className="text-white text-sm font-medium line-clamp-2">
-                    {playback.nextVideo.title}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2 text-white/40 text-xs">
-                    <Clock className="w-3 h-3" />
-                    <span>{formatDuration(playback.nextVideo.duration)}</span>
-                  </div>
+                  <p className="text-white text-sm font-medium">{playback.nextVideo.title}</p>
+                  <p className="text-white/40 text-xs mt-1">{formatDuration(playback.nextVideo.duration)}</p>
                 </div>
               )}
 
+              {/* Quick Actions */}
+              <div className="flex gap-3">
+                <button className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg transition-all flex items-center justify-center gap-2 text-sm">
+                  <Heart className="w-4 h-4" />
+                  Like
+                </button>
+                <button className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg transition-all flex items-center justify-center gap-2 text-sm">
+                  <Share2 className="w-4 h-4" />
+                  Share
+                </button>
+                <button className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg transition-all flex items-center justify-center gap-2 text-sm">
+                  <Info className="w-4 h-4" />
+                  Info
+                </button>
+              </div>
+
               {/* Playlist Preview */}
               <div className="bg-white/5 rounded-xl p-4">
-                <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-3">
-                  PLAYLIST PREVIEW
-                </p>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {videos.slice(0, 10).map((video, idx) => (
-                    <div key={idx} className="flex items-start gap-2 text-xs">
+                <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-3">PLAYLIST</p>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {videos.slice(0, 8).map((video, idx) => (
+                    <div key={idx} className="flex items-center gap-3 text-xs p-2 rounded-lg hover:bg-white/5 transition-colors">
                       <span className="text-white/30 font-mono w-6">{idx + 1}</span>
                       <div className="flex-1">
-                        <p className="text-white/70 line-clamp-1">{video.title}</p>
+                        <p className="text-white/80 line-clamp-1">{video.title}</p>
                         <p className="text-white/30 text-[10px]">{formatDuration(video.duration)}</p>
                       </div>
                     </div>
                   ))}
-                  {videos.length > 10 && (
+                  {videos.length > 8 && (
                     <p className="text-white/30 text-[10px] text-center mt-2">
-                      +{videos.length - 10} more videos
+                      +{videos.length - 8} more videos
                     </p>
                   )}
                 </div>
