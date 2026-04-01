@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Channel } from '../types';
@@ -27,7 +26,7 @@ const genres = [
   { id: 'trending', name: 'Trending', icon: TrendingUp, color: 'from-orange-500 to-red-500' },
 ];
 
-// Mock genre mapping for channels (in real app, this would come from Firebase)
+// Genre mapping for channels
 const getChannelGenre = (channel: Channel): string => {
   const name = channel.name.toLowerCase();
   if (name.includes('movie') || name.includes('film') || name.includes('cinema')) return 'movies';
@@ -45,8 +44,10 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
   const [selectedGenre, setSelectedGenre] = useState('all');
   const [hoveredChannel, setHoveredChannel] = useState<string | null>(null);
   const [scrollPosition, setScrollPosition] = useState(0);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Load channels
   useEffect(() => {
     const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -68,9 +69,49 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
     return getChannelGenre(channel) === selectedGenre;
   });
 
+  // Smart TV: Handle remote control navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!filteredChannels.length) return;
+      
+      switch (e.key) {
+        case 'ArrowRight':
+          e.preventDefault();
+          setFocusedIndex(prev => Math.min(prev + 1, filteredChannels.length - 1));
+          // Auto-scroll to focused item
+          if (containerRef.current && focusedIndex + 1 < filteredChannels.length) {
+            const focusedElement = containerRef.current.children[focusedIndex + 1] as HTMLElement;
+            if (focusedElement) {
+              focusedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+          }
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          setFocusedIndex(prev => Math.max(prev - 1, -1));
+          // Auto-scroll to focused item
+          if (containerRef.current && focusedIndex - 1 >= 0) {
+            const focusedElement = containerRef.current.children[focusedIndex - 1] as HTMLElement;
+            if (focusedElement) {
+              focusedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+          }
+          break;
+        case 'Enter':
+          if (focusedIndex >= 0 && filteredChannels[focusedIndex]) {
+            onSelectChannel(filteredChannels[focusedIndex]);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredChannels, focusedIndex, onSelectChannel]);
+
   const scroll = (direction: 'left' | 'right') => {
     if (containerRef.current) {
-      const scrollAmount = 300;
+      const scrollAmount = 400;
       const newPosition = direction === 'left' 
         ? scrollPosition - scrollAmount 
         : scrollPosition + scrollAmount;
@@ -95,24 +136,27 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
 
   return (
     <div className="space-y-8">
-      {/* Genre Navigation */}
+      {/* Genre Navigation - Smart TV Friendly */}
       <div className="relative">
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-2">
-          {genres.map((genre) => {
+        <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide pb-2">
+          {genres.map((genre, idx) => {
             const Icon = genre.icon;
             const isSelected = selectedGenre === genre.id;
             return (
               <button
                 key={genre.id}
-                onClick={() => setSelectedGenre(genre.id)}
-                className={`relative flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-300 whitespace-nowrap ${
+                onClick={() => {
+                  setSelectedGenre(genre.id);
+                  setFocusedIndex(-1);
+                }}
+                className={`relative flex items-center gap-3 px-6 py-3 rounded-full transition-all duration-300 whitespace-nowrap ${
                   isSelected 
                     ? `bg-gradient-to-r ${genre.color} text-white shadow-lg scale-105` 
                     : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span className="text-sm font-medium">{genre.name}</span>
+                <Icon className="w-5 h-5" />
+                <span className="text-base font-medium">{genre.name}</span>
                 {isSelected && (
                   <motion.div
                     layoutId="genre-indicator"
@@ -127,77 +171,80 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
         </div>
       </div>
 
-      {/* Channel Grid */}
+      {/* Channel Grid - Smart TV Optimized */}
       <div className="relative">
-        {/* Scroll Buttons */}
+        {/* Left Scroll Button */}
         {scrollPosition > 0 && (
           <button
             onClick={() => scroll('left')}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-black/50 backdrop-blur-md p-2 rounded-full hover:bg-black/70 transition-all"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-black/70 backdrop-blur-md p-3 rounded-full hover:bg-orange-500 transition-all shadow-lg"
           >
-            <ChevronLeft className="w-6 h-6 text-white" />
+            <ChevronLeft className="w-8 h-8 text-white" />
           </button>
         )}
         
         <div
           ref={containerRef}
-          className="flex gap-4 overflow-x-auto scrollbar-hide scroll-smooth pb-4"
+          className="flex gap-5 overflow-x-auto scrollbar-hide scroll-smooth pb-6"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {filteredChannels.map((channel) => {
+          {filteredChannels.map((channel, idx) => {
             const genre = getChannelGenre(channel);
             const genreData = genres.find(g => g.id === genre) || genres[0];
             const Icon = genreData.icon;
             const isSelected = selectedChannelId === channel.id;
+            const isFocused = focusedIndex === idx;
             const isHovered = hoveredChannel === channel.id;
             
             return (
               <motion.div
                 key={channel.id}
-                className="relative flex-shrink-0 w-64 md:w-72 cursor-pointer group"
+                className={`relative flex-shrink-0 w-80 md:w-96 cursor-pointer transition-all duration-200 ${
+                  isFocused ? 'scale-105 z-10' : ''
+                }`}
                 whileHover={{ scale: 1.02, y: -4 }}
                 transition={{ duration: 0.2 }}
                 onMouseEnter={() => setHoveredChannel(channel.id)}
                 onMouseLeave={() => setHoveredChannel(null)}
                 onClick={() => onSelectChannel(channel)}
               >
-                <div className={`relative rounded-xl overflow-hidden transition-all duration-300 ${
-                  isSelected ? 'ring-2 ring-orange-500 ring-offset-2 ring-offset-black' : ''
-                }`}>
+                <div className={`relative rounded-2xl overflow-hidden transition-all duration-300 ${
+                  isSelected ? 'ring-4 ring-orange-500 ring-offset-2 ring-offset-black' : ''
+                } ${isFocused ? 'ring-2 ring-white/50' : ''}`}>
                   {/* Channel Card Background */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${genreData.color} opacity-20`} />
-                  <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-all" />
+                  <div className={`absolute inset-0 bg-gradient-to-br ${genreData.color} opacity-30`} />
+                  <div className="absolute inset-0 bg-black/50 group-hover:bg-black/30 transition-all" />
                   
                   {/* Content */}
-                  <div className="relative p-4 min-h-[160px] flex flex-col justify-between">
+                  <div className="relative p-6 min-h-[200px] flex flex-col justify-between">
                     {/* Genre Badge */}
                     <div className="flex justify-between items-start">
-                      <div className={`px-2 py-1 rounded-full bg-gradient-to-r ${genreData.color} text-white text-[10px] font-bold uppercase tracking-wider flex items-center gap-1`}>
-                        <Icon className="w-3 h-3" />
+                      <div className={`px-3 py-1.5 rounded-full bg-gradient-to-r ${genreData.color} text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2`}>
+                        <Icon className="w-4 h-4" />
                         <span>{genreData.name}</span>
                       </div>
                       {isSelected && (
-                        <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+                        <div className="w-3 h-3 bg-orange-500 rounded-full animate-pulse" />
                       )}
                     </div>
                     
                     {/* Channel Info */}
-                    <div className="mt-4">
-                      <h3 className="text-white font-bold text-lg line-clamp-1 mb-1">
+                    <div className="mt-6">
+                      <h3 className="text-white font-bold text-xl line-clamp-1 mb-2">
                         {channel.name}
                       </h3>
-                      <p className="text-white/60 text-xs line-clamp-2 mb-3">
+                      <p className="text-white/60 text-sm line-clamp-2 mb-4">
                         {channel.description || '24/7 Live Streaming'}
                       </p>
                       
                       {/* Stats */}
-                      <div className="flex items-center gap-3 text-white/40 text-[10px]">
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
+                      <div className="flex items-center gap-4 text-white/40 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-4 h-4" />
                           <span>24/7 Live</span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Film className="w-3 h-3" />
+                        <div className="flex items-center gap-1.5">
+                          <Film className="w-4 h-4" />
                           <span>{channel.videoCount || '∞'} videos</span>
                         </div>
                       </div>
@@ -205,22 +252,22 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
                     
                     {/* Hover Overlay */}
                     <AnimatePresence>
-                      {isHovered && (
+                      {(isHovered || isFocused) && (
                         <motion.div
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 10 }}
-                          className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex items-end p-4"
+                          className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent flex items-end p-6"
                         >
-                          <div className="w-full space-y-2">
+                          <div className="w-full space-y-3">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onSelectChannel(channel);
                               }}
-                              className="w-full bg-orange-500 text-white py-2 rounded-lg flex items-center justify-center gap-2 text-sm font-medium hover:bg-orange-600 transition-all"
+                              className="w-full bg-orange-500 text-white py-3 rounded-xl flex items-center justify-center gap-2 text-base font-medium hover:bg-orange-600 transition-all"
                             >
-                              <Play className="w-4 h-4" />
+                              <Play className="w-5 h-5" />
                               Watch Now
                             </button>
                             <button
@@ -228,9 +275,9 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
                                 e.stopPropagation();
                                 // Show channel info
                               }}
-                              className="w-full bg-white/20 text-white py-2 rounded-lg flex items-center justify-center gap-2 text-sm font-medium hover:bg-white/30 transition-all"
+                              className="w-full bg-white/20 text-white py-3 rounded-xl flex items-center justify-center gap-2 text-base font-medium hover:bg-white/30 transition-all"
                             >
-                              <Info className="w-4 h-4" />
+                              <Info className="w-5 h-5" />
                               Details
                             </button>
                           </div>
@@ -248,9 +295,9 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
         {containerRef.current && scrollPosition < (containerRef.current.scrollWidth - containerRef.current.clientWidth) && (
           <button
             onClick={() => scroll('right')}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-black/50 backdrop-blur-md p-2 rounded-full hover:bg-black/70 transition-all"
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-black/70 backdrop-blur-md p-3 rounded-full hover:bg-orange-500 transition-all shadow-lg"
           >
-            <ChevronRight className="w-6 h-6 text-white" />
+            <ChevronRight className="w-8 h-8 text-white" />
           </button>
         )}
       </div>
@@ -258,8 +305,17 @@ export function ChannelList({ selectedChannelId, onSelectChannel }: ChannelListP
       {/* Empty State */}
       {filteredChannels.length === 0 && (
         <div className="text-center py-12">
-          <Tv className="w-16 h-16 text-white/20 mx-auto mb-4" />
-          <p className="text-white/40 text-sm">No channels found in this category</p>
+          <Tv className="w-20 h-20 text-white/20 mx-auto mb-4" />
+          <p className="text-white/40 text-base">No channels found in this category</p>
+        </div>
+      )}
+      
+      {/* Smart TV Remote Hint */}
+      {filteredChannels.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
+          <div className="bg-black/60 backdrop-blur-md rounded-full px-4 py-2 text-white/40 text-xs">
+            ← → Navigate • Enter to Select
+          </div>
         </div>
       )}
     </div>
