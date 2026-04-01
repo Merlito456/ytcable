@@ -6,7 +6,7 @@ import {
   SkipForward, AlertCircle, Menu, Maximize2, 
   Minimize2, Film, Heart, Share2, Info, 
   ChevronRight, ChevronLeft, ThumbsUp, 
-  ThumbsDown, Bookmark, MoreHorizontal
+  ThumbsDown, Bookmark, MoreHorizontal, RefreshCw
 } from 'lucide-react';
 
 interface PlayerProps {
@@ -22,15 +22,19 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string>('');
   const [skippingVideo, setSkippingVideo] = useState<Video | null>(null);
   const [skipCountdown, setSkipCountdown] = useState<number>(0);
   const [showControls, setShowControls] = useState(true);
   const [isLiked, setIsLiked] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [manualRetry, setManualRetry] = useState(false);
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
+  const errorTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Auto-hide controls after 3 seconds of inactivity
   useEffect(() => {
@@ -52,7 +56,7 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
 
   // Skip countdown timer
   useEffect(() => {
-    if (skipCountdown > 0) {
+    if (skipCountdown > 0 && skippingVideo) {
       skipTimeoutRef.current = setTimeout(() => {
         setSkipCountdown(skipCountdown - 1);
       }, 1000);
@@ -106,6 +110,8 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
     
     setSkippingVideo(null);
     setSkipCountdown(0);
+    setError(null);
+    setErrorDetails('');
   };
 
   // Handle mute/unmute
@@ -126,13 +132,73 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
     }
   };
 
-  // Handle video errors
+  // Handle retry
+  const handleRetry = () => {
+    if (playerRef.current && playback?.currentVideo) {
+      setManualRetry(true);
+      setError(null);
+      setErrorDetails('');
+      setRetryCount(retryCount + 1);
+      
+      try {
+        playerRef.current.loadVideoById({
+          videoId: playback.currentVideo.youtubeId,
+          startSeconds: playback.offset
+        });
+      } catch (err) {
+        console.error('Error retrying video:', err);
+      }
+      
+      setTimeout(() => setManualRetry(false), 1000);
+    }
+  };
+
+  // Handle video errors with detailed messages
   const onError: YouTubeProps['onError'] = (event) => {
+    const errorCode = event.data;
+    let errorMessage = '';
+    let userMessage = '';
+    
+    // YouTube player error codes
+    switch (errorCode) {
+      case 2:
+        errorMessage = 'Invalid video ID';
+        userMessage = 'The video may have been removed or is invalid.';
+        break;
+      case 5:
+        errorMessage = 'HTML5 player error';
+        userMessage = 'This video cannot be played in your browser.';
+        break;
+      case 100:
+        errorMessage = 'Video not found';
+        userMessage = 'The video has been removed or is unavailable.';
+        break;
+      case 101:
+      case 150:
+        errorMessage = 'Embedding disabled';
+        userMessage = 'This video cannot be embedded or is private.';
+        break;
+      default:
+        errorMessage = `Unknown error (${errorCode})`;
+        userMessage = 'An unexpected error occurred.';
+    }
+    
+    console.error(`YouTube Error: ${errorMessage}`, event);
+    
     if (playback?.currentVideo && !skippingVideo) {
       setSkippingVideo(playback.currentVideo);
       setSkipCountdown(5);
-      setError(`Video unavailable. Skipping in 5 seconds...`);
-      setTimeout(() => setError(null), 5000);
+      setErrorDetails(userMessage);
+      setError(`"${playback.currentVideo.title}" is unavailable. Skipping in 5 seconds...`);
+      
+      // Clear error after 6 seconds (allowing time for skip)
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = setTimeout(() => {
+        if (!skippingVideo) {
+          setError(null);
+          setErrorDetails('');
+        }
+      }, 6000);
     }
   };
 
@@ -341,7 +407,6 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* TV Guide Button */}
             {onShowGuide && (
               <button
                 onClick={() => onShowGuide()}
@@ -446,12 +511,49 @@ export function Player({ channel, videos, onShowGuide }: PlayerProps) {
         </div>
       </div>
 
-      {/* Error Toast */}
+      {/* Enhanced Error Toast with Retry and Countdown */}
       {error && (
-        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 bg-red-500/90 backdrop-blur-md text-white px-4 py-2 rounded-lg text-sm z-50 animate-in fade-in slide-in-from-top duration-300 shadow-xl">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" />
-            <span>{error}</span>
+        <div className="fixed top-24 left-1/2 transform -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top duration-300">
+          <div className="bg-gradient-to-r from-red-500/95 to-orange-500/95 backdrop-blur-md text-white px-6 py-4 rounded-xl shadow-2xl border border-white/20 max-w-md">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium mb-1">Playback Error</p>
+                <p className="text-xs text-white/80">{error}</p>
+                {errorDetails && (
+                  <p className="text-[10px] text-white/60 mt-1">{errorDetails}</p>
+                )}
+                {skipCountdown > 0 && !manualRetry && (
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-white rounded-full transition-all duration-1000"
+                          style={{ width: `${(skipCountdown / 5) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-white/60">Skipping in {skipCountdown}s</span>
+                    </div>
+                  </div>
+                )}
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={handleRetry}
+                    disabled={manualRetry}
+                    className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium transition-all disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${manualRetry ? 'animate-spin' : ''}`} />
+                    {manualRetry ? 'Retrying...' : 'Retry'}
+                  </button>
+                  <button
+                    onClick={manualSkip}
+                    className="px-3 py-1 bg-orange-500 hover:bg-orange-600 rounded-lg text-xs font-medium transition-all"
+                  >
+                    Skip Now
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
