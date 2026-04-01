@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, getDocs } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { Channel, Video } from './types';
@@ -24,7 +24,7 @@ export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [showGuide, setShowGuide] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [focusedElement, setFocusedElement] = useState<string>('');
+  const [isLoadingChannels, setIsLoadingChannels] = useState(true);
 
   // Smart TV: Handle remote control navigation
   useEffect(() => {
@@ -33,24 +33,19 @@ export default function App() {
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault();
-          // Navigate up
           break;
         case 'ArrowDown':
           e.preventDefault();
-          // Navigate down
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          // Navigate left
           break;
         case 'ArrowRight':
           e.preventDefault();
-          // Navigate right
           break;
         case 'Enter':
         case ' ':
           e.preventDefault();
-          // Select focused element
           break;
         case 'Escape':
           if (showGuide) setShowGuide(false);
@@ -64,30 +59,54 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showGuide, showSidebar, showAdmin]);
 
-  // Load channels
+  // Load channels and auto-select the first one
   useEffect(() => {
-    const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const loadChannels = async () => {
+      setIsLoadingChannels(true);
+      try {
+        const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
+        const snapshot = await getDocs(q);
+        const channelData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Channel));
+        setChannels(channelData);
+        
+        // Auto-select the first channel if available and no channel is selected
+        if (channelData.length > 0 && !selectedChannel) {
+          console.log('Auto-selecting first channel:', channelData[0].name);
+          setSelectedChannel(channelData[0]);
+        }
+      } catch (error) {
+        console.error("Error loading channels:", error);
+      } finally {
+        setIsLoadingChannels(false);
+      }
+    };
+
+    loadChannels();
+    
+    // Also set up real-time listener for updates
+    const unsubscribe = onSnapshot(query(collection(db, 'channels'), orderBy('createdAt', 'desc')), (snapshot) => {
       const channelData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as Channel));
       setChannels(channelData);
+      
+      // Auto-select first channel if none selected and channels exist
+      if (channelData.length > 0 && !selectedChannel) {
+        console.log('Auto-selecting first channel from real-time update:', channelData[0].name);
+        setSelectedChannel(channelData[0]);
+      }
     }, (error) => {
       console.error("Error loading channels:", error);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, []); // Empty dependency array - run once on mount
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
-  }, []);
-
+  // Load videos when channel changes
   useEffect(() => {
     if (!selectedChannel) return;
 
@@ -169,78 +188,63 @@ export default function App() {
     setLastClickTime(now);
   };
 
-  // Channel selection screen
-  if (!selectedChannel) {
+  // Show loading state while channels are being loaded
+  if (isLoadingChannels && channels.length === 0) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 overflow-y-auto">
-        {/* Hero Section - TV Style */}
-        <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent z-10" />
-          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=2059&auto=format&fit=crop')] bg-cover bg-center scale-110" />
-          
-          <div className="relative z-20 h-full flex items-center px-8 md:px-16 lg:px-24">
-            <div className="max-w-3xl">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center shadow-2xl">
-                  <Tv className="w-10 h-10 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight">YouTube Cable</h1>
-                  <p className="text-white/60 text-lg md:text-xl mt-2">Smart TV Experience • 24/7 Live Streaming</p>
-                </div>
-              </div>
-              <p className="text-white/80 text-xl mb-8 max-w-2xl leading-relaxed">
-                Your favorite channels, streaming continuously in HD. Choose a channel to start watching.
-              </p>
-              <div className="flex items-center gap-6 text-white/50 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span>Live Now</span>
-                </div>
-                <span>•</span>
-                <span>24/7 Streaming</span>
-                <span>•</span>
-                <span>HD Quality</span>
-                <span>•</span>
-                <span>Smart TV Ready</span>
-              </div>
+      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative">
+            <div className="w-20 h-20 border-4 border-orange-500/30 border-t-orange-500 rounded-full animate-spin mx-auto mb-6" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Tv className="w-8 h-8 text-orange-500 animate-pulse" />
             </div>
           </div>
-          
-          {/* Scroll Indicator for TV */}
-          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 animate-bounce z-20">
-            <div className="w-8 h-12 border-2 border-white/30 rounded-full flex justify-center">
-              <div className="w-1.5 h-3 bg-white/50 rounded-full mt-2 animate-pulse" />
-            </div>
-          </div>
-        </div>
-        
-        {/* Channel Selection Section */}
-        <div className="px-8 md:px-16 lg:px-24 py-12">
-          <div className="mb-8">
-            <h2 className="text-3xl md:text-4xl font-bold text-white">Live Channels</h2>
-            <p className="text-white/40 text-lg mt-2">Browse and select from {channels.length} available channels</p>
-          </div>
-          
-          <ChannelList
-            selectedChannelId={null}
-            onSelectChannel={setSelectedChannel}
-          />
+          <p className="text-white/60 text-lg font-medium">Loading your channels...</p>
+          <p className="text-white/40 text-sm mt-2">Please wait</p>
         </div>
       </div>
     );
   }
 
+  // If no channels exist, show empty state
+  if (channels.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-8">
+          <div className="w-24 h-24 bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
+            <Tv className="w-12 h-12 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-white mb-4">YouTube Cable</h1>
+          <p className="text-white/60 mb-6">No channels available. Please add channels in the admin panel.</p>
+          {user?.email === "rabanes.johncarlo4@gmail.com" && (
+            <button
+              onClick={() => setShowAdmin(true)}
+              className="px-6 py-3 bg-orange-500 text-white rounded-xl font-medium hover:bg-orange-600 transition-all"
+            >
+              Open Admin Panel
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Player is now always visible since we auto-select a channel
   return (
     <div className="fixed inset-0 bg-black">
       {/* Player - Fullscreen with Smart TV optimizations */}
-      <Player 
-        channel={selectedChannel} 
-        videos={videos}
-        onShowGuide={() => setShowGuide(true)}
-      />
+      {selectedChannel && (
+        <Player 
+          channel={selectedChannel} 
+          videos={videos}
+          onShowGuide={() => setShowGuide(true)}
+        />
+      )}
 
-      {/* Smart TV Sidebar - Large, TV-friendly buttons */}
+      {/* Channel List Overlay - Accessible via menu button in Player */}
+      {/* The player now has a menu button that opens the channel list */}
+
+      {/* Smart TV Sidebar */}
       <AnimatePresence>
         {showSidebar && (
           <>
@@ -329,7 +333,7 @@ export default function App() {
       {/* TV Guide */}
       {showGuide && (
         <TVGuide
-          currentChannel={selectedChannel}
+          currentChannel={selectedChannel!}
           allChannels={channels}
           videos={videos}
           onChannelSelect={(channel) => {
@@ -343,7 +347,7 @@ export default function App() {
       {/* Admin Panel */}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
       
-      {/* Password Modal - TV Optimized */}
+      {/* Password Modal */}
       <AnimatePresence>
         {showPasswordModal && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-8 bg-black/95 backdrop-blur-md">
@@ -399,7 +403,7 @@ export default function App() {
       {/* Smart TV Remote Control Hint */}
       <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-30 pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
         <div className="bg-black/50 backdrop-blur-md rounded-full px-4 py-2 text-white/40 text-xs">
-          Use arrow keys to navigate • Enter to select • ESC to go back
+          Press Menu for options • ESC to go back
         </div>
       </div>
     </div>
