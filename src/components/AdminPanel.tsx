@@ -240,7 +240,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
-  // Fix video durations using YouTube API - WORKING VERSION
+  // Fix video durations using YouTube API - FIXED FOR LARGE DATASETS
   const fixVideoDurations = async (channelId: string) => {
     if (!apiKeyValid) {
       setError('Cannot fix durations: YouTube API key not configured');
@@ -280,35 +280,46 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       
       setProgressMessage(`Processing ${allVideos.length} videos...`);
       
-      // Process videos one by one to show progress
-      const batch = writeBatch(db);
+      // Process videos in batches
       let updatedCount = 0;
       let failedCount = 0;
+      const BATCH_SIZE = 50; // Firebase batch limit
       
-      for (let i = 0; i < allVideos.length; i++) {
-        const video = allVideos[i];
-        setProgressMessage(`Fetching duration for: ${video.title.substring(0, 50)}... (${i + 1}/${allVideos.length})`);
+      for (let i = 0; i < allVideos.length; i += BATCH_SIZE) {
+        const batchEnd = Math.min(i + BATCH_SIZE, allVideos.length);
+        const batchVideos = allVideos.slice(i, batchEnd);
         
-        try {
-          const realDuration = await fetchYouTubeDuration(video.youtubeId);
-          
-          if (realDuration > 0) {
-            const videoRef = doc(db, `channels/${channelId}/videos`, video.id);
-            batch.update(videoRef, { duration: Number(realDuration) });
-            updatedCount++;
-            console.log(`✓ "${video.title}": ${video.oldDuration} → ${realDuration}s`);
-          } else {
+        setProgressMessage(`Processing videos ${i + 1} to ${batchEnd} of ${allVideos.length}...`);
+        
+        // Create a NEW batch for each batch of videos
+        const batch = writeBatch(db);
+        let batchUpdatedCount = 0;
+        
+        // Process each video in this batch
+        for (const video of batchVideos) {
+          try {
+            const realDuration = await fetchYouTubeDuration(video.youtubeId);
+            
+            if (realDuration > 0) {
+              const videoRef = doc(db, `channels/${channelId}/videos`, video.id);
+              batch.update(videoRef, { duration: Number(realDuration) });
+              batchUpdatedCount++;
+              console.log(`✓ "${video.title.substring(0, 50)}": ${video.oldDuration} → ${realDuration}s`);
+            } else {
+              failedCount++;
+              console.warn(`✗ Failed for "${video.title.substring(0, 50)}" (${video.youtubeId})`);
+            }
+          } catch (error) {
             failedCount++;
-            console.warn(`✗ Failed for "${video.title}" (${video.youtubeId})`);
+            console.error(`Error for ${video.title}:`, error);
           }
-        } catch (error) {
-          failedCount++;
-          console.error(`Error for ${video.title}:`, error);
         }
         
-        // Commit every 50 videos to avoid batch size limit
-        if ((i + 1) % 50 === 0 || i === allVideos.length - 1) {
+        // Commit this batch
+        if (batchUpdatedCount > 0) {
           await batch.commit();
+          updatedCount += batchUpdatedCount;
+          setProgressMessage(`Updated ${updatedCount} videos so far...`);
         }
       }
       
