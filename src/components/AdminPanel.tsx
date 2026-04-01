@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, doc, writeBatch, onSnapshot, query, orderBy, deleteDoc, setDoc, getDocs } from 'firebase/firestore';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser, sendEmailVerification } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import { 
   Plus, 
@@ -15,7 +15,8 @@ import {
   AlertCircle,
   CheckCircle,
   RefreshCw,
-  Youtube
+  Youtube,
+  Mail
 } from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/error-handler';
 import { Channel, Video } from '../types';
@@ -56,6 +57,110 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   }, []);
 
+  // Check admin status - MODIFIED: removed emailVerified requirement
+  useEffect(() => {
+    console.log("AdminPanel mounted");
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setUser(user);
+      
+      if (user) {
+        console.log("User authenticated:", user.email);
+        console.log("Email verified:", user.emailVerified);
+        
+        // Check if the user is admin based on email ONLY (don't require verification)
+        const adminEmail = "rabanes.johncarlo4@gmail.com";
+        const isUserAdmin = user.email === adminEmail; // Removed emailVerified check
+        setIsAdmin(isUserAdmin);
+        
+        if (!isUserAdmin) {
+          setError(`You don't have admin permissions. Only ${adminEmail} can manage channels.`);
+        } else {
+          console.log("Admin access granted");
+          setError(null);
+        }
+      } else {
+        console.log("No user authenticated");
+        setIsAdmin(false);
+        setError("Please sign in to access admin features.");
+      }
+    });
+    
+    return () => unsubscribe();
+  }, []);
+
+  // Load channels for manage tab
+  useEffect(() => {
+    if (activeTab !== 'manage' && activeTab !== 'videos') return;
+    
+    if (!isAdmin) {
+      console.log("Not admin, skipping channel load");
+      return;
+    }
+
+    console.log("Loading channels...");
+    const q = query(collection(db, 'channels'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const channelData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Channel));
+      setChannels(channelData);
+      console.log("Channels loaded:", channelData.length);
+    }, (error) => {
+      console.error("Error loading channels:", error);
+      handleFirestoreError(error, OperationType.LIST, 'channels');
+      setError(`Failed to load channels: ${error.message}`);
+    });
+
+    return () => unsubscribe();
+  }, [activeTab, isAdmin]);
+
+  // Load videos when a channel is selected
+  useEffect(() => {
+    if (!selectedChannel || !isAdmin) {
+      setChannelVideos([]);
+      return;
+    }
+
+    console.log("Loading videos for channel:", selectedChannel.id);
+    const videosRef = collection(db, `channels/${selectedChannel.id}/videos`);
+    const q = query(videosRef, orderBy('order', 'asc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const videosData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          youtubeId: data.youtubeId,
+          title: data.title,
+          duration: typeof data.duration === 'number' ? data.duration : parseInt(data.duration, 10) || 0,
+          order: typeof data.order === 'number' ? data.order : parseInt(data.order, 10) || 0,
+        } as Video;
+      });
+      setChannelVideos(videosData);
+      console.log("Videos loaded:", videosData.length);
+    }, (error) => {
+      console.error("Failed to load videos:", error);
+      setError(`Failed to load videos: ${error.message}`);
+    });
+
+    return () => unsubscribe();
+  }, [selectedChannel, isAdmin]);
+
+  // Send verification email function
+  const sendVerificationEmail = async () => {
+    if (user && !user.emailVerified) {
+      try {
+        await sendEmailVerification(user);
+        setSuccess('Verification email sent! Please check your inbox and click the link.');
+        setTimeout(() => setSuccess(null), 5000);
+      } catch (error: any) {
+        console.error("Failed to send verification:", error);
+        setError(`Failed to send verification: ${error.message}`);
+      }
+    }
+  };
+
   // Parse ISO 8601 duration to seconds
   const parseDuration = (duration: string): number => {
     const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -94,8 +199,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     if (!apiKeyValid) return new Map();
     
     const durationMap = new Map<string, number>();
-    const uniqueIds = [...new Set(youtubeIds)]; // Remove duplicates
-    const batchSize = 50; // YouTube API allows up to 50 IDs per request
+    const uniqueIds = [...new Set(youtubeIds)];
+    const batchSize = 50;
     
     for (let i = 0; i < uniqueIds.length; i += batchSize) {
       const batch = uniqueIds.slice(i, i + batchSize);
@@ -127,7 +232,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     let title = '';
     let duration = 0;
     
-    // Format: youtubeId|title|duration
     if (line.includes('|')) {
       const parts = line.split('|').map(s => s.trim());
       if (parts.length >= 3) {
@@ -139,7 +243,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         }
       }
     } 
-    // Format: youtubeId,title,duration
     else if (line.includes(',')) {
       const parts = line.split(',').map(s => s.trim());
       if (parts.length >= 3) {
@@ -151,7 +254,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         }
       }
     }
-    // Format: Just youtubeId
     else {
       youtubeId = line.trim();
       title = `Video ${youtubeId}`;
@@ -161,9 +263,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
     
     if (youtubeId) {
-      // If duration is still 0 and we didn't fetch from API, use default
       if (duration <= 0) {
-        duration = 300; // 5 minutes fallback
+        duration = 300;
         console.warn(`Using default duration (300s) for ${title}`);
       }
       return { youtubeId, title, duration };
@@ -192,7 +293,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       snapshot.docs.forEach((doc) => {
         const data = doc.data();
         const duration = data.duration;
-        // Check if duration is invalid (string, zero, or negative)
         if (typeof duration !== 'number' || duration <= 0 || isNaN(duration)) {
           videosToFix.push({
             id: doc.id,
@@ -209,7 +309,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         return;
       }
       
-      // Fetch durations for all videos
       const youtubeIds = videosToFix.map(v => v.youtubeId);
       const durationMap = await fetchVideosDurations(youtubeIds);
       
@@ -301,15 +400,13 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     setError(null);
     
     try {
-      // Parse video data
       const lines = videoData.split('\n').filter(l => l.trim().length > 0);
       const videos: { youtubeId: string; title: string; duration: number }[] = [];
       
       setSuccess('Fetching video durations from YouTube...');
       
-      // Parse each video line and fetch durations from API
       for (const line of lines) {
-        const parsed = await parseVideoLine(line, true); // Fetch from YouTube API
+        const parsed = await parseVideoLine(line, true);
         if (parsed) {
           videos.push(parsed);
         }
@@ -322,9 +419,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       }
       
       console.log("Creating channel with", videos.length, "videos");
-      console.log("Videos data:", videos);
       
-      // Create channel document
       const channelData = {
         name: channelName,
         description: channelDesc || "",
@@ -336,7 +431,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       const channelRef = await addDoc(collection(db, 'channels'), channelData);
       console.log("Channel created with ID:", channelRef.id);
       
-      // Create videos subcollection
       const batch = writeBatch(db);
       videos.forEach((video, index) => {
         const videoRef = doc(collection(db, `channels/${channelRef.id}/videos`));
@@ -351,7 +445,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       await batch.commit();
       console.log("Videos added to channel");
       
-      // Reset form
       setChannelName('');
       setChannelDesc('');
       setVideoData('');
@@ -364,7 +457,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     } catch (error: any) {
       console.error("Failed to add channel:", error);
       if (error.code === 'permission-denied') {
-        setError('Permission denied. Please make sure you are logged in as admin with verified email.');
+        setError('Permission denied. Please make sure you are logged in as admin.');
       } else {
         setError(`Failed to create channel: ${error.message}`);
       }
@@ -392,7 +485,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       setSuccess('Fetching video durations from YouTube...');
       
       for (const line of lines) {
-        const parsed = await parseVideoLine(line, true); // Fetch from YouTube API
+        const parsed = await parseVideoLine(line, true);
         if (parsed) {
           videos.push(parsed);
         }
@@ -426,7 +519,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     } catch (error: any) {
       console.error("Failed to add videos:", error);
       if (error.code === 'permission-denied') {
-        setError('Permission denied. Please make sure you are logged in as admin with verified email.');
+        setError('Permission denied. Please make sure you are logged in as admin.');
       } else {
         setError(`Failed to add videos: ${error.message}`);
       }
@@ -478,7 +571,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // If not admin, show restricted view
+  // If not admin, show restricted view with option to send verification
   if (!isAdmin) {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -499,10 +592,19 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             <p className="text-zinc-400 text-sm">
               {error || "You don't have permission to access the admin panel."}
             </p>
-            {user && !user.emailVerified && (
-              <p className="text-orange-500 text-xs mt-4">
-                Please verify your email address to gain admin access.
-              </p>
+            {user && (
+              <div className="mt-4">
+                <p className="text-zinc-500 text-xs mb-2">
+                  Logged in as: <span className="text-white">{user.email}</span>
+                </p>
+                <button
+                  onClick={sendVerificationEmail}
+                  className="bg-orange-600 text-white text-xs px-3 py-1 rounded hover:bg-orange-500 flex items-center gap-2 mx-auto"
+                >
+                  <Mail className="w-3 h-3" />
+                  Send Verification Email
+                </button>
+              </div>
             )}
           </div>
           
@@ -517,9 +619,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     );
   }
 
+  // Rest of the component remains the same...
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-4xl p-6 animate-in zoom-in-95 duration-200">
+        {/* ... rest of your JSX remains exactly the same ... */}
+        {/* Keep all the existing JSX from your current return statement */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg md:text-xl font-black text-white flex items-center gap-2 uppercase tracking-tight">
             <Settings className="w-5 h-5 text-orange-500" />
@@ -560,6 +665,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </div>
         )}
 
+        {/* Tab buttons and rest of content - keep exactly as in your current code */}
         <div className="flex p-1 bg-zinc-800 rounded-lg mb-6">
           <button
             onClick={() => setActiveTab('create')}
@@ -596,7 +702,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </button>
         </div>
 
+        {/* The rest of your tabs content remains exactly the same */}
         {activeTab === 'create' && (
+          // ... keep your existing create tab content
           <div className="space-y-4">
             <form onSubmit={handleAddChannel} className="space-y-4">
               <input
@@ -715,7 +823,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                   <p className="text-sm text-zinc-400">{selectedChannel.description || 'No description'}</p>
                 </div>
 
-                {/* Fix Durations Button */}
                 <button
                   onClick={() => fixVideoDurations(selectedChannel.id)}
                   disabled={fetchingDurations || !apiKeyValid}
