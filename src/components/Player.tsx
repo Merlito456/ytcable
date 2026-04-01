@@ -12,26 +12,11 @@ export function Player({ channel, videos }: PlayerProps) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [showChannelList, setShowChannelList] = useState(false);
-  const [showInfo, setShowInfo] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [skippingVideo, setSkippingVideo] = useState<Video | null>(null);
   const [skipCountdown, setSkipCountdown] = useState<number>(0);
   const playerRef = useRef<any>(null);
-  const infoTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
-
-  // Auto-hide info overlay after 3 seconds
-  useEffect(() => {
-    if (showInfo) {
-      if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
-      infoTimeoutRef.current = setTimeout(() => {
-        setShowInfo(false);
-      }, 3000);
-    }
-    return () => {
-      if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
-    };
-  }, [showInfo]);
 
   // Skip countdown timer
   useEffect(() => {
@@ -140,11 +125,6 @@ export function Player({ channel, videos }: PlayerProps) {
   const toggleChannelList = (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowChannelList(!showChannelList);
-  };
-
-  // Show info on click
-  const showInfoOverlay = () => {
-    setShowInfo(true);
   };
 
   useEffect(() => {
@@ -401,50 +381,6 @@ export function Player({ channel, videos }: PlayerProps) {
         <Menu className="w-5 h-5" />
       </button>
 
-      {/* Channel Name Overlay (Top Center) - Moved to center */}
-      <div className={`absolute top-6 left-1/2 transform -translate-x-1/2 z-40 transition-all duration-300 ${showInfo ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="bg-black/60 backdrop-blur-md rounded-xl px-4 py-2 border border-white/10">
-          <div className="flex items-center gap-2">
-            <Tv className="w-4 h-4 text-orange-500" />
-            <h1 className="text-lg md:text-xl font-bold text-white tracking-tight">
-              {channel.name}
-            </h1>
-          </div>
-          {channel.description && (
-            <p className="text-white/60 text-xs mt-1 max-w-md line-clamp-1">
-              {channel.description}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Now Playing Overlay (Bottom Left) */}
-      <div className={`absolute bottom-6 left-6 right-6 md:right-auto z-40 transition-all duration-300 ${showInfo ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="bg-black/60 backdrop-blur-md rounded-xl p-3 border border-white/10 max-w-md">
-          <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">
-            NOW PLAYING
-          </p>
-          <h2 className="text-white text-sm md:text-base font-bold line-clamp-2">
-            {playback.currentVideo.title}
-          </h2>
-          {playback.nextVideo && (
-            <p className="text-white/40 text-[10px] mt-1">
-              Up Next: {playback.nextVideo.title}
-            </p>
-          )}
-          
-          {/* Progress Bar */}
-          <div className="mt-2">
-            <div className="h-1 bg-white/20 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-orange-500 rounded-full transition-all duration-1000"
-                style={{ width: `${getCurrentProgress()}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Channel List Sidebar with Controls */}
       {showChannelList && (
         <>
@@ -467,6 +403,32 @@ export function Player({ channel, videos }: PlayerProps) {
             </div>
             
             <div className="p-4 space-y-6">
+              {/* Now Playing Progress Bar - Always Visible */}
+              <div className="bg-orange-500/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                  <p className="text-orange-500 text-xs font-bold uppercase tracking-wider">
+                    NOW PLAYING
+                  </p>
+                </div>
+                <p className="text-white font-semibold text-sm line-clamp-2 mb-2">
+                  {playback.currentVideo.title}
+                </p>
+                {/* Progress Bar */}
+                <div className="mt-2">
+                  <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-orange-500 rounded-full transition-all duration-1000"
+                      style={{ width: `${getCurrentProgress()}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-white/40 text-[10px] mt-1">
+                    <span>{formatDuration(playback.offset)}</span>
+                    <span>{formatDuration(playback.currentVideo.duration)}</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Control Buttons Section */}
               <div className="bg-white/5 rounded-xl p-4">
                 <h4 className="text-white/60 text-xs font-bold uppercase tracking-wider mb-3">Audio Controls</h4>
@@ -506,25 +468,6 @@ export function Player({ channel, videos }: PlayerProps) {
                   <div className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     <span>24/7 Live</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Now Playing Section */}
-              <div className="bg-orange-500/10 border-l-2 border-orange-500 rounded-xl">
-                <div className="p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
-                    <p className="text-orange-500 text-xs font-bold uppercase tracking-wider">
-                      NOW PLAYING
-                    </p>
-                  </div>
-                  <p className="text-white font-semibold text-sm line-clamp-2">
-                    {playback.currentVideo.title}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2 text-white/40 text-xs">
-                    <Clock className="w-3 h-3" />
-                    <span>{formatDuration(playback.currentVideo.duration)}</span>
                   </div>
                 </div>
               </div>
@@ -574,12 +517,6 @@ export function Player({ channel, videos }: PlayerProps) {
           </div>
         </>
       )}
-
-      {/* Click to show info overlay */}
-      <div 
-        className="absolute inset-0 cursor-pointer z-30"
-        onClick={showInfoOverlay}
-      />
     </div>
   );
 }
