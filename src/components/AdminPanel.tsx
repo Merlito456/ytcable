@@ -671,379 +671,301 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     );
   }
 
-  // Admin view
+  // Admin view - REDUCED SIZE
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-4xl p-6 animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg md:text-xl font-black text-white flex items-center gap-2 uppercase tracking-tight">
-            <Settings className="w-5 h-5 text-orange-500" />
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+        {/* Header - Compact */}
+        <div className="flex justify-between items-center p-4 border-b border-zinc-800">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Settings className="w-4 h-4 text-orange-500" />
             Admin Dashboard
           </h2>
-          <div className="flex gap-2">
+          <div className="flex gap-1">
             <button
               onClick={handleSignOut}
-              className="text-zinc-500 hover:text-red-500 p-2 transition-colors"
+              className="text-zinc-500 hover:text-red-500 p-1.5 transition-colors rounded-lg hover:bg-zinc-800"
               title="Sign Out"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-4 h-4" />
             </button>
-            <button onClick={onClose} className="text-zinc-500 hover:text-white p-2">
-              <X className="w-5 h-5" />
+            <button onClick={onClose} className="text-zinc-500 hover:text-white p-1.5 transition-colors rounded-lg hover:bg-zinc-800">
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* API Key Status */}
-        {!apiKeyValid && (
-          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/50 rounded-lg text-yellow-500 text-sm flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>YouTube API key not configured. Video durations will default to 5 minutes. Add VITE_YOUTUBE_API_KEY to your .env file.</span>
-          </div>
-        )}
+        {/* Content - Scrollable */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* API Key Status */}
+          {!apiKeyValid && (
+            <div className="p-2 bg-yellow-500/10 border border-yellow-500/50 rounded-lg text-yellow-500 text-xs">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              YouTube API key not configured. Video durations will default to 5 minutes.
+            </div>
+          )}
 
-        {/* Error and Success Messages */}
-        {error && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-sm flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-        {success && (
-          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/50 rounded-lg text-green-500 text-sm flex items-start gap-2">
-            <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>{success}</span>
-          </div>
-        )}
-        {progressMessage && fetchingDurations && (
-          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/50 rounded-lg text-blue-400 text-sm flex items-start gap-2">
-            <Loader2 className="w-4 h-4 mt-0.5 flex-shrink-0 animate-spin" />
-            <span>{progressMessage}</span>
-          </div>
-        )}
+          {/* Error and Success Messages */}
+          {error && (
+            <div className="p-2 bg-red-500/10 border border-red-500/50 rounded-lg text-red-500 text-xs">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="p-2 bg-green-500/10 border border-green-500/50 rounded-lg text-green-500 text-xs">
+              <CheckCircle className="w-3 h-3 inline mr-1" />
+              {success}
+            </div>
+          )}
+          {progressMessage && fetchingDurations && (
+            <div className="p-2 bg-blue-500/10 border border-blue-500/50 rounded-lg text-blue-400 text-xs">
+              <Loader2 className="w-3 h-3 inline mr-1 animate-spin" />
+              {progressMessage}
+            </div>
+          )}
 
-        {/* Admin Info */}
-        {user && (
-          <div className="mb-4 p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg text-xs text-orange-400 flex items-center justify-between">
-            <span>Logged in as: {user.email}</span>
-            <span className="px-2 py-0.5 bg-orange-500/20 rounded">Admin ✓</span>
+          {/* Admin Info */}
+          {user && (
+            <div className="p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg text-xs text-orange-400 flex items-center justify-between">
+              <span>Logged in as: {user.email}</span>
+              <span className="px-2 py-0.5 bg-orange-500/20 rounded text-[10px]">Admin ✓</span>
+            </div>
+          )}
+
+          {/* Tab buttons - Compact */}
+          <div className="flex gap-1 p-1 bg-zinc-800 rounded-lg">
+            <button
+              onClick={() => setActiveTab('create')}
+              className={`flex-1 py-1.5 text-[11px] font-bold rounded-md transition-all flex items-center justify-center gap-1 ${
+                activeTab === 'create' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Plus className="w-3 h-3" />
+              Create
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('manage');
+                setSelectedChannel(null);
+              }}
+              className={`flex-1 py-1.5 text-[11px] font-bold rounded-md transition-all flex items-center justify-center gap-1 ${
+                activeTab === 'manage' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Settings className="w-3 h-3" />
+              Channels ({channels.length})
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('videos');
+                setSelectedChannel(null);
+              }}
+              className={`flex-1 py-1.5 text-[11px] font-bold rounded-md transition-all flex items-center justify-center gap-1 ${
+                activeTab === 'videos' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <VideoIcon className="w-3 h-3" />
+              Videos
+            </button>
           </div>
-        )}
 
-        {/* Tab buttons */}
-        <div className="flex p-1 bg-zinc-800 rounded-lg mb-6">
-          <button
-            onClick={() => setActiveTab('create')}
-            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'create' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <Plus className="w-4 h-4" />
-            Create Channel
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('manage');
-              setSelectedChannel(null);
-            }}
-            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'manage' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            Manage Channels ({channels.length})
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('videos');
-              setSelectedChannel(null);
-            }}
-            className={`flex-1 py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'videos' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <VideoIcon className="w-4 h-4" />
-            Manage Videos
-          </button>
-        </div>
-
-        {/* Create Channel Tab */}
-        {activeTab === 'create' && (
-          <div className="space-y-4">
-            <form onSubmit={handleAddChannel} className="space-y-4">
+          {/* Create Channel Tab - Compact */}
+          {activeTab === 'create' && (
+            <form onSubmit={handleAddChannel} className="space-y-3">
               <input
                 type="text"
                 placeholder="Channel Name"
                 value={channelName}
                 onChange={(e) => setChannelName(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
                 required
               />
               <textarea
                 placeholder="Description (optional)"
                 value={channelDesc}
                 onChange={(e) => setChannelDesc(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-orange-500 h-20"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500 h-16"
               />
-              
-              <div className="space-y-2">
-                <div className="flex items-center justify-between px-1">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Video Metadata</label>
-                  <div className="group relative">
-                    <Info className="w-3 h-3 text-zinc-600 cursor-help" />
-                    <div className="absolute bottom-full right-0 mb-2 w-80 p-3 bg-zinc-800 border border-zinc-700 rounded-xl text-[10px] text-zinc-400 leading-relaxed opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-2xl">
-                      <p className="font-bold mb-1">Supported Formats:</p>
-                      <p className="font-mono text-orange-500 text-xs">youtubeId | title | duration</p>
-                      <p className="font-mono text-orange-500 text-xs">youtubeId, title, duration</p>
-                      <p className="font-mono text-orange-500 text-xs">youtubeId</p>
-                      <p className="text-xs mt-2">Duration is optional. If omitted or 0, will be fetched from YouTube API automatically.</p>
-                    </div>
-                  </div>
-                </div>
-                <textarea
-                  placeholder="youtubeId | title | duration&#10;dQw4w9WgXcQ | Rick Astley - Never Gonna Give You Up | 212&#10;8SbUC-UaAxE | Another Video (duration auto-fetched)&#10;M7FIvfx5J10"
-                  value={videoData}
-                  onChange={(e) => setVideoData(e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 h-48"
-                  required
-                />
-              </div>
-
+              <textarea
+                placeholder="youtubeId | title | duration (optional)&#10;dQw4w9WgXcQ | Rick Astley | 212"
+                value={videoData}
+                onChange={(e) => setVideoData(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs font-mono focus:outline-none focus:border-orange-500 h-32"
+                required
+              />
               <button
                 type="submit"
                 disabled={isProcessing}
-                className="w-full bg-orange-600 text-white font-bold py-3 rounded-lg hover:bg-orange-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full bg-orange-600 text-white font-bold py-1.5 rounded-lg hover:bg-orange-500 transition-all flex items-center justify-center gap-1 text-xs disabled:opacity-50"
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Creating Channel...</span>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Creating...
                   </>
                 ) : (
                   <>
-                    <Youtube className="w-5 h-5" />
-                    <span>Create Channel with Videos</span>
+                    <Youtube className="w-3 h-3" />
+                    Create Channel
                   </>
                 )}
               </button>
             </form>
-          </div>
-        )}
+          )}
 
-        {/* Manage Channels Tab */}
-        {activeTab === 'manage' && (
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-            {channels.length === 0 ? (
-              <div className="text-center py-12 text-zinc-600">
-                <p className="text-sm font-bold uppercase tracking-widest">No channels found</p>
-              </div>
-            ) : (
-              channels.map(channel => (
-                <div key={channel.id} className="bg-zinc-800/50 border border-zinc-800 rounded-xl p-4 flex justify-between items-center group hover:border-zinc-700 transition-all">
-                  <div>
-                    <h3 className="font-bold text-white uppercase tracking-tight">{channel.name}</h3>
-                    <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-1">
-                      {channel.type} • {channel.description || 'No description'}
-                    </p>
-                    <p className="text-[9px] text-zinc-600 mt-1">
-                      Created: {new Date(channel.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteChannel(channel.id)}
-                    className="p-2 text-zinc-600 hover:text-red-500 transition-colors"
-                    title="Delete Channel"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+          {/* Manage Channels Tab - Compact */}
+          {activeTab === 'manage' && (
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+              {channels.length === 0 ? (
+                <div className="text-center py-6 text-zinc-600">
+                  <p className="text-xs font-bold">No channels found</p>
                 </div>
-              ))
-            )}
-          </div>
-        )}
+              ) : (
+                channels.map(channel => (
+                  <div key={channel.id} className="bg-zinc-800/50 border border-zinc-800 rounded-lg p-2 flex justify-between items-center">
+                    <div>
+                      <h3 className="font-bold text-white text-xs uppercase">{channel.name}</h3>
+                      <p className="text-[9px] text-zinc-500">{channel.type} • {channel.description?.substring(0, 30) || 'No description'}</p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteChannel(channel.id)}
+                      className="p-1 text-zinc-600 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
-        {/* Manage Videos Tab */}
-        {activeTab === 'videos' && (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Select Channel</label>
+          {/* Manage Videos Tab - Compact */}
+          {activeTab === 'videos' && (
+            <div className="space-y-3">
               <select
                 value={selectedChannel?.id || ''}
                 onChange={(e) => {
                   const channel = channels.find(c => c.id === e.target.value);
                   setSelectedChannel(channel || null);
                 }}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
               >
                 <option value="">Select a channel</option>
                 {channels.map(channel => (
                   <option key={channel.id} value={channel.id}>{channel.name}</option>
                 ))}
               </select>
-            </div>
 
-            {selectedChannel && (
-              <>
-                <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl p-4">
-                  <h3 className="font-bold text-white mb-2">{selectedChannel.name}</h3>
-                  <p className="text-sm text-zinc-400">{selectedChannel.description || 'No description'}</p>
-                </div>
+              {selectedChannel && (
+                <>
+                  <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-2">
+                    <h3 className="font-bold text-white text-xs">{selectedChannel.name}</h3>
+                    <p className="text-[10px] text-zinc-400 line-clamp-1">{selectedChannel.description || 'No description'}</p>
+                  </div>
 
-                {/* Test YouTube API Button */}
-                <button
-                  onClick={testYouTubeAPI}
-                  disabled={!apiKeyValid}
-                  className="w-full bg-purple-600 text-white font-bold py-2 rounded-lg hover:bg-purple-500 transition-all flex items-center justify-center gap-2 text-sm mb-2 disabled:opacity-50"
-                >
-                  <Youtube className="w-4 h-4" />
-                  Test YouTube API Connection
-                </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={testYouTubeAPI}
+                      disabled={!apiKeyValid}
+                      className="flex-1 bg-purple-600 text-white font-bold py-1.5 rounded-lg hover:bg-purple-500 text-xs disabled:opacity-50 flex items-center justify-center gap-1"
+                    >
+                      <Youtube className="w-3 h-3" />
+                      Test API
+                    </button>
+                    <button
+                      onClick={() => fixVideoDurations(selectedChannel.id)}
+                      disabled={fetchingDurations || !apiKeyValid}
+                      className="flex-1 bg-blue-600 text-white font-bold py-1.5 rounded-lg hover:bg-blue-500 text-xs disabled:opacity-50 flex items-center justify-center gap-1"
+                    >
+                      {fetchingDurations ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3 h-3" />
+                      )}
+                      Fix Durations
+                    </button>
+                  </div>
 
-                {/* Fix Durations Button */}
-                <button
-                  onClick={() => fixVideoDurations(selectedChannel.id)}
-                  disabled={fetchingDurations || !apiKeyValid}
-                  className="w-full bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-500 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-                >
-                  {fetchingDurations ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Fetching durations from YouTube...</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4" />
-                      <span>Fetch Real Durations from YouTube API</span>
-                    </>
-                  )}
-                </button>
-
-                <form onSubmit={handleAddVideosToChannel} className="space-y-3">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Add Videos to Channel</label>
+                  <form onSubmit={handleAddVideosToChannel} className="space-y-2">
                     <textarea
-                      placeholder="youtubeId | title | duration&#10;dQw4w9WgXcQ | Rick Astley - Never Gonna Give You Up | 212&#10;8SbUC-UaAxE | Another Video (duration auto-fetched)"
+                      placeholder="youtubeId | title | duration"
                       value={videoData}
                       onChange={(e) => setVideoData(e.target.value)}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 h-32"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs font-mono focus:outline-none focus:border-orange-500 h-24"
                     />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isProcessing}
-                    className="w-full bg-orange-600 text-white font-bold py-2 rounded-lg hover:bg-orange-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Adding Videos...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Youtube className="w-4 h-4" />
-                        <span>Add Videos to Channel</span>
-                      </>
-                    )}
-                  </button>
-                </form>
+                    <button
+                      type="submit"
+                      disabled={isProcessing}
+                      className="w-full bg-orange-600 text-white font-bold py-1.5 rounded-lg hover:bg-orange-500 text-xs disabled:opacity-50 flex items-center justify-center gap-1"
+                    >
+                      {isProcessing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                      Add Videos
+                    </button>
+                  </form>
 
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">
-                    Videos in this channel ({channelVideos.length})
-                  </h4>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {channelVideos.map(video => (
-                      <div key={video.id} className="bg-zinc-800/50 border border-zinc-800 rounded-lg p-3">
-                        {editingVideo?.id === video.id ? (
-                          <div className="space-y-2">
-                            <input
-                              type="text"
-                              value={editingVideo.youtubeId}
-                              onChange={(e) => setEditingVideo({...editingVideo, youtubeId: e.target.value})}
-                              className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-sm"
-                              placeholder="YouTube ID"
-                            />
-                            <input
-                              type="text"
-                              value={editingVideo.title}
-                              onChange={(e) => setEditingVideo({...editingVideo, title: e.target.value})}
-                              className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-sm"
-                              placeholder="Title"
-                            />
-                            <input
-                              type="number"
-                              value={editingVideo.duration}
-                              onChange={(e) => setEditingVideo({...editingVideo, duration: parseInt(e.target.value) || 0})}
-                              className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-sm"
-                              placeholder="Duration (seconds)"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => handleUpdateVideo(editingVideo)}
-                                className="flex-1 bg-green-600 text-white text-xs py-1 rounded hover:bg-green-500"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingVideo(null)}
-                                className="flex-1 bg-zinc-600 text-white text-xs py-1 rounded hover:bg-zinc-500"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <Link className="w-3 h-3 text-orange-500" />
-                                <a 
-                                  href={generateVideoLink(video.youtubeId)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sm font-mono text-orange-500 hover:text-orange-400 hover:underline"
-                                >
-                                  {video.youtubeId}
-                                </a>
+                  <div className="space-y-2">
+                    <h4 className="text-[10px] font-bold text-zinc-400 uppercase">Videos ({channelVideos.length})</h4>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {channelVideos.map(video => (
+                        <div key={video.id} className="bg-zinc-800/50 border border-zinc-800 rounded-lg p-2">
+                          {editingVideo?.id === video.id ? (
+                            <div className="space-y-1.5">
+                              <input
+                                type="text"
+                                value={editingVideo.youtubeId}
+                                onChange={(e) => setEditingVideo({...editingVideo, youtubeId: e.target.value})}
+                                className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-xs"
+                              />
+                              <input
+                                type="text"
+                                value={editingVideo.title}
+                                onChange={(e) => setEditingVideo({...editingVideo, title: e.target.value})}
+                                className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-xs"
+                              />
+                              <input
+                                type="number"
+                                value={editingVideo.duration}
+                                onChange={(e) => setEditingVideo({...editingVideo, duration: parseInt(e.target.value) || 0})}
+                                className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-white text-xs"
+                              />
+                              <div className="flex gap-1">
+                                <button onClick={() => handleUpdateVideo(editingVideo)} className="flex-1 bg-green-600 text-white text-[10px] py-1 rounded">Save</button>
+                                <button onClick={() => setEditingVideo(null)} className="flex-1 bg-zinc-600 text-white text-[10px] py-1 rounded">Cancel</button>
                               </div>
-                              <p className="text-sm text-white mt-1">{video.title}</p>
-                              <p className="text-xs text-zinc-500">
-                                Duration: {formatDuration(video.duration)} • Order: {video.order}
-                                {(!video.duration || video.duration <= 0) && ' ⚠️ Invalid duration (click Fix button)'}
-                              </p>
                             </div>
-                            <div className="flex gap-1">
-                              <button
-                                onClick={() => setEditingVideo(video)}
-                                className="p-1 text-zinc-500 hover:text-orange-500 transition-colors"
-                                title="Edit Video"
-                              >
-                                <Settings className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteVideo(video.id)}
-                                className="p-1 text-zinc-500 hover:text-red-500 transition-colors"
-                                title="Delete Video"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                          ) : (
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-1">
+                                  <Link className="w-2.5 h-2.5 text-orange-500" />
+                                  <a href={generateVideoLink(video.youtubeId)} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono text-orange-500 hover:underline">
+                                    {video.youtubeId}
+                                  </a>
+                                </div>
+                                <p className="text-xs text-white mt-0.5 line-clamp-1">{video.title}</p>
+                                <p className="text-[9px] text-zinc-500">Duration: {formatDuration(video.duration)} • Order: {video.order}</p>
+                              </div>
+                              <div className="flex gap-0.5">
+                                <button onClick={() => setEditingVideo(video)} className="p-1 text-zinc-500 hover:text-orange-500"><Settings className="w-3 h-3" /></button>
+                                <button onClick={() => handleDeleteVideo(video.id)} className="p-1 text-zinc-500 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {channelVideos.length === 0 && (
-                      <div className="text-center py-8 text-zinc-500">
-                        <p className="text-sm">No videos in this channel yet.</p>
-                        <p className="text-xs mt-1">Use the form above to add videos.</p>
-                      </div>
-                    )}
+                          )}
+                        </div>
+                      ))}
+                      {channelVideos.length === 0 && (
+                        <div className="text-center py-4 text-zinc-500">
+                          <p className="text-xs">No videos yet</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
