@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import YouTube, { YouTubeProps } from 'react-youtube';
 import { Channel, Video, PlaybackState } from '../types';
-import { Volume2, VolumeX, X, List, Tv, Clock, Users, Play, SkipForward, AlertCircle } from 'lucide-react';
+import { Volume2, VolumeX, X, List, Tv, Clock, Users, Play, SkipForward, AlertCircle, Menu } from 'lucide-react';
 
 interface PlayerProps {
   channel: Channel;
@@ -392,8 +392,17 @@ export function Player({ channel, videos }: PlayerProps) {
         />
       </div>
 
-      {/* Channel Name Overlay (Top Left) */}
-      <div className={`absolute top-6 left-6 z-40 transition-all duration-300 ${showInfo ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Menu Button - Opens Channel List */}
+      <button
+        onClick={toggleChannelList}
+        className="fixed top-6 left-6 z-[100] bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 shadow-lg"
+        title="Menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
+      {/* Channel Name Overlay (Top Center) - Moved to center */}
+      <div className={`absolute top-6 left-1/2 transform -translate-x-1/2 z-40 transition-all duration-300 ${showInfo ? 'opacity-100' : 'opacity-0'}`}>
         <div className="bg-black/60 backdrop-blur-md rounded-xl px-4 py-2 border border-white/10">
           <div className="flex items-center gap-2">
             <Tv className="w-4 h-4 text-orange-500" />
@@ -436,45 +445,18 @@ export function Player({ channel, videos }: PlayerProps) {
         </div>
       </div>
 
-      {/* Control Buttons - HIGHEST Z-INDEX */}
-      <div className="fixed top-6 right-6 z-[100] flex gap-3">
-        <button
-          onClick={toggleChannelList}
-          className="bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 hover:scale-110 active:scale-95 shadow-lg"
-          title="Channel List"
-        >
-          <List className="w-5 h-5" />
-        </button>
-        
-        <button
-          onClick={toggleMute}
-          className="bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 hover:scale-110 active:scale-95 shadow-lg"
-          title={isMuted ? "Unmute" : "Mute"}
-        >
-          {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-        </button>
-
-        <button
-          onClick={manualSkip}
-          className="bg-black/70 backdrop-blur-md text-white p-3 rounded-xl hover:bg-orange-600 transition-all border border-white/20 hover:scale-110 active:scale-95 shadow-lg"
-          title="Skip to next video"
-        >
-          <SkipForward className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Channel List Sidebar */}
+      {/* Channel List Sidebar with Controls */}
       {showChannelList && (
         <>
           <div 
-            className="fixed inset-0 bg-black/60 z-[60] transition-opacity"
+            className="fixed inset-0 bg-black/60 z-50 transition-opacity"
             onClick={toggleChannelList}
           />
-          <div className="fixed top-0 right-0 bottom-0 w-80 md:w-96 bg-black/95 backdrop-blur-xl border-l border-white/10 z-[70] shadow-2xl animate-in slide-in-from-right duration-300">
-            <div className="flex items-center justify-between p-4 border-b border-white/10">
+          <div className="fixed left-0 top-0 bottom-0 w-80 md:w-96 bg-black/95 backdrop-blur-xl border-r border-white/10 z-[60] shadow-2xl animate-in slide-in-from-left duration-300 overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b border-white/10 sticky top-0 bg-black/95 backdrop-blur-xl z-10">
               <div className="flex items-center gap-2">
                 <Tv className="w-5 h-5 text-orange-500" />
-                <h3 className="text-white font-bold text-sm">Channel Information</h3>
+                <h3 className="text-white font-bold text-sm">Channel Controls</h3>
               </div>
               <button
                 onClick={toggleChannelList}
@@ -484,85 +466,108 @@ export function Player({ channel, videos }: PlayerProps) {
               </button>
             </div>
             
-            <div className="overflow-y-auto h-full pb-20">
-              <div className="p-4 space-y-4">
-                {/* Channel Details */}
-                <div className="bg-white/5 rounded-lg p-4">
-                  <h4 className="text-white font-bold text-lg mb-1">{channel.name}</h4>
-                  <p className="text-white/60 text-sm mb-3">
-                    {channel.description || 'No description available'}
-                  </p>
-                  <div className="flex items-center gap-4 text-white/40 text-xs">
-                    <div className="flex items-center gap-1">
-                      <Play className="w-3 h-3" />
-                      <span>{videos.length} videos</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      <span>24/7 Live</span>
-                    </div>
+            <div className="p-4 space-y-6">
+              {/* Control Buttons Section */}
+              <div className="bg-white/5 rounded-xl p-4">
+                <h4 className="text-white/60 text-xs font-bold uppercase tracking-wider mb-3">Audio Controls</h4>
+                <div className="flex gap-3">
+                  <button
+                    onClick={toggleMute}
+                    className="flex-1 bg-orange-600 text-white p-3 rounded-xl hover:bg-orange-500 transition-all flex items-center justify-center gap-2"
+                    title={isMuted ? "Unmute" : "Mute"}
+                  >
+                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                    <span className="text-sm font-medium">{isMuted ? "Unmute" : "Mute"}</span>
+                  </button>
+                  
+                  <button
+                    onClick={manualSkip}
+                    className="flex-1 bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-500 transition-all flex items-center justify-center gap-2"
+                    title="Skip to next video"
+                  >
+                    <SkipForward className="w-5 h-5" />
+                    <span className="text-sm font-medium">Skip</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Channel Details */}
+              <div className="bg-white/5 rounded-xl p-4">
+                <h4 className="text-white/60 text-xs font-bold uppercase tracking-wider mb-3">Channel Info</h4>
+                <h3 className="text-white font-bold text-lg mb-1">{channel.name}</h3>
+                <p className="text-white/60 text-sm mb-3">
+                  {channel.description || 'No description available'}
+                </p>
+                <div className="flex items-center gap-4 text-white/40 text-xs">
+                  <div className="flex items-center gap-1">
+                    <Play className="w-3 h-3" />
+                    <span>{videos.length} videos</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    <span>24/7 Live</span>
                   </div>
                 </div>
+              </div>
 
-                {/* Now Playing Section */}
-                <div className="bg-orange-500/10 border-l-2 border-orange-500 rounded-lg">
-                  <div className="p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
-                      <p className="text-orange-500 text-xs font-bold uppercase tracking-wider">
-                        NOW PLAYING
-                      </p>
-                    </div>
-                    <p className="text-white font-semibold text-sm line-clamp-2">
-                      {playback.currentVideo.title}
+              {/* Now Playing Section */}
+              <div className="bg-orange-500/10 border-l-2 border-orange-500 rounded-xl">
+                <div className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                    <p className="text-orange-500 text-xs font-bold uppercase tracking-wider">
+                      NOW PLAYING
                     </p>
-                    <div className="flex items-center gap-2 mt-2 text-white/40 text-xs">
-                      <Clock className="w-3 h-3" />
-                      <span>{formatDuration(playback.currentVideo.duration)}</span>
-                    </div>
+                  </div>
+                  <p className="text-white font-semibold text-sm line-clamp-2">
+                    {playback.currentVideo.title}
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-white/40 text-xs">
+                    <Clock className="w-3 h-3" />
+                    <span>{formatDuration(playback.currentVideo.duration)}</span>
                   </div>
                 </div>
+              </div>
 
-                {/* Up Next Preview */}
-                {playback.nextVideo && (
-                  <div className="bg-white/5 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <SkipForward className="w-3 h-3 text-white/40" />
-                      <p className="text-white/40 text-xs font-bold uppercase tracking-wider">
-                        UP NEXT
-                      </p>
-                    </div>
-                    <p className="text-white text-sm font-medium line-clamp-2">
-                      {playback.nextVideo.title}
+              {/* Up Next Preview */}
+              {playback.nextVideo && (
+                <div className="bg-white/5 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <SkipForward className="w-3 h-3 text-white/40" />
+                    <p className="text-white/40 text-xs font-bold uppercase tracking-wider">
+                      UP NEXT
                     </p>
-                    <div className="flex items-center gap-2 mt-2 text-white/40 text-xs">
-                      <Clock className="w-3 h-3" />
-                      <span>{formatDuration(playback.nextVideo.duration)}</span>
-                    </div>
                   </div>
-                )}
-
-                {/* Playlist Preview */}
-                <div className="bg-white/5 rounded-lg p-4">
-                  <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-3">
-                    PLAYLIST PREVIEW
+                  <p className="text-white text-sm font-medium line-clamp-2">
+                    {playback.nextVideo.title}
                   </p>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {videos.slice(0, 5).map((video, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-xs">
-                        <span className="text-white/30 font-mono w-6">{idx + 1}</span>
-                        <div className="flex-1">
-                          <p className="text-white/70 line-clamp-1">{video.title}</p>
-                          <p className="text-white/30 text-[10px]">{formatDuration(video.duration)}</p>
-                        </div>
+                  <div className="flex items-center gap-2 mt-2 text-white/40 text-xs">
+                    <Clock className="w-3 h-3" />
+                    <span>{formatDuration(playback.nextVideo.duration)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Playlist Preview */}
+              <div className="bg-white/5 rounded-xl p-4">
+                <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-3">
+                  PLAYLIST PREVIEW
+                </p>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {videos.slice(0, 10).map((video, idx) => (
+                    <div key={idx} className="flex items-start gap-2 text-xs">
+                      <span className="text-white/30 font-mono w-6">{idx + 1}</span>
+                      <div className="flex-1">
+                        <p className="text-white/70 line-clamp-1">{video.title}</p>
+                        <p className="text-white/30 text-[10px]">{formatDuration(video.duration)}</p>
                       </div>
-                    ))}
-                    {videos.length > 5 && (
-                      <p className="text-white/30 text-[10px] text-center mt-2">
-                        +{videos.length - 5} more videos
-                      </p>
-                    )}
-                  </div>
+                    </div>
+                  ))}
+                  {videos.length > 10 && (
+                    <p className="text-white/30 text-[10px] text-center mt-2">
+                      +{videos.length - 10} more videos
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
