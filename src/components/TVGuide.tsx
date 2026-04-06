@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Channel, Video } from '../types';
-import { Search, Tv, Clock, X, Play, Info, Calendar, ChevronLeft, ChevronRight, Zap, ArrowRight } from 'lucide-react';
+import { Search, Tv, Clock, X, Play, Info, ArrowRight } from 'lucide-react';
 
 interface TVGuideProps {
   currentChannel: Channel;
@@ -29,17 +29,17 @@ interface ProgramWithTime {
   progress?: number;
 }
 
-export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, onClose }: TVGuideProps) {
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose }: TVGuideProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [showInfo, setShowInfo] = useState(false);
-  const [channelProgramsMap, setChannelProgramsMap] = useState<Map<string, ProgramWithTime[]>>(new Map());
+  const [channelVideosMap, setChannelVideosMap] = useState<Map<string, Video[]>>(new Map());
   const [loadingChannels, setLoadingChannels] = useState<Set<string>>(new Set());
+  const [channelProgramsMap, setChannelProgramsMap] = useState<Map<string, ProgramWithTime[]>>(new Map());
 
-  // Update current time every second for live progress
+  // Update current time every second
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -47,7 +47,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     return () => clearInterval(timer);
   }, []);
 
-  // Format duration to readable time
+  // Format duration
   const formatDuration = (seconds: number) => {
     if (!seconds || seconds <= 0) return '0:00';
     const hours = Math.floor(seconds / 3600);
@@ -63,27 +63,28 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     return `${secs}s`;
   };
 
-  // Format time for display
+  // Format time
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Calculate programs for a channel (only current and next within 3-hour window)
-  const calculateChannelPrograms = (channelVideos: Video[], channelStartTime: number) => {
+  // Calculate programs for a channel using actual video data
+  const calculateChannelPrograms = (channelVideos: Video[]): ProgramWithTime[] => {
+    if (!channelVideos.length) return [];
+    
     const programs: ProgramWithTime[] = [];
     const now = new Date();
     const threeHoursLater = new Date(now.getTime() + 3 * 60 * 60 * 1000);
     
-    // Set base time to today at 6 AM
-    const today = new Date();
-    today.setHours(6, 0, 0, 0);
+    // Set base time to current time rounded to hour
+    const startBase = new Date();
+    startBase.setMinutes(0, 0, 0);
     
     let accumulatedTime = 0;
     
-    // Find current and upcoming programs
     for (let i = 0; i < channelVideos.length; i++) {
       const video = channelVideos[i];
-      const startTime = new Date(today);
+      const startTime = new Date(startBase);
       startTime.setSeconds(startTime.getSeconds() + accumulatedTime);
       
       const endTime = new Date(startTime);
@@ -92,7 +93,6 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
       const isLive = now >= startTime && now <= endTime;
       const isInWindow = endTime >= now && startTime <= threeHoursLater;
       
-      // Only include programs that are currently playing or within next 3 hours
       if (isLive || isInWindow) {
         let progress = 0;
         if (isLive) {
@@ -120,19 +120,17 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
       
       accumulatedTime += video.duration;
       
-      // Stop if we've gone beyond the 3-hour window and found at least one program
       if (startTime > threeHoursLater && programs.length > 0) {
         break;
       }
     }
     
-    // Sort programs by start time
     return programs.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   };
 
-  // Fetch videos for a specific channel and calculate schedule
-  const fetchChannelSchedule = async (channel: Channel) => {
-    if (channelProgramsMap.has(channel.id)) return;
+  // Fetch videos for a specific channel
+  const fetchChannelVideos = async (channel: Channel) => {
+    if (channelVideosMap.has(channel.id)) return;
     
     setLoadingChannels(prev => new Set(prev).add(channel.id));
     
@@ -146,10 +144,13 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
         ...doc.data()
       } as Video));
       
-      const programs = calculateChannelPrograms(channelVideos, channel.startTime);
+      setChannelVideosMap(prev => new Map(prev).set(channel.id, channelVideos));
+      
+      // Calculate programs for this channel
+      const programs = calculateChannelPrograms(channelVideos);
       setChannelProgramsMap(prev => new Map(prev).set(channel.id, programs));
     } catch (error) {
-      console.error(`Failed to fetch schedule for channel ${channel.name}:`, error);
+      console.error(`Failed to fetch videos for channel ${channel.name}:`, error);
     } finally {
       setLoadingChannels(prev => {
         const newSet = new Set(prev);
@@ -159,10 +160,10 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     }
   };
 
-  // Load schedules for all channels
+  // Load videos for all channels
   useEffect(() => {
     allChannels.forEach(channel => {
-      fetchChannelSchedule(channel);
+      fetchChannelVideos(channel);
     });
   }, [allChannels]);
 
@@ -200,7 +201,6 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
     }
   };
 
-  // Get upcoming programs count
   const getUpcomingCount = (channelId: string) => {
     const programs = channelProgramsMap.get(channelId);
     if (!programs) return 0;
@@ -228,7 +228,6 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
           </div>
           
           <div className="flex items-center gap-3">
-            {/* Current Time */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/10 rounded-lg">
               <Clock className="w-4 h-4 text-white/60" />
               <span className="text-white text-sm font-mono">
@@ -236,7 +235,6 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
               </span>
             </div>
             
-            {/* Search Button */}
             <button
               onClick={() => setShowSearch(!showSearch)}
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all"
@@ -246,7 +244,6 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
           </div>
         </div>
 
-        {/* Search Bar */}
         {showSearch && (
           <div className="px-4 md:px-6 pb-4">
             <div className="relative">
@@ -284,6 +281,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
           <div className="divide-y divide-white/5">
             {filteredChannels.map((channel) => {
               const programs = channelProgramsMap.get(channel.id) || [];
+              const channelVideos = channelVideosMap.get(channel.id) || [];
               const currentProgram = getCurrentProgram(channel.id);
               const nextProgram = getNextProgram(channel.id);
               const isCurrent = currentChannel.id === channel.id;
@@ -310,7 +308,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                         <div>
                           <div className="font-bold text-white text-sm">{channel.name}</div>
                           <div className="text-[10px] text-white/40">
-                            {isLoading ? 'Loading...' : `${upcomingCount} upcoming`}
+                            {isLoading ? 'Loading...' : `${channelVideos.length} videos`}
                           </div>
                         </div>
                       </div>
@@ -372,7 +370,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                             </div>
                           )}
 
-                          {/* Additional Upcoming Programs (if any) */}
+                          {/* Additional Upcoming Programs */}
                           {programs.filter(p => !p.isLive && p.startTime > (currentProgram?.endTime || new Date())).slice(1, 3).map(program => (
                             <div key={program.id} className="bg-white/5 rounded-lg p-2 opacity-70">
                               <div className="flex items-center gap-2">
@@ -427,7 +425,11 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                       </div>
                     );
                   }
-                  return <p className="text-white/60 text-sm">No upcoming programs scheduled</p>;
+                  const videos = channelVideosMap.get(currentChannel.id) || [];
+                  if (videos.length > 0) {
+                    return <p className="text-white/60 text-sm">{videos.length} videos available</p>;
+                  }
+                  return <p className="text-white/60 text-sm">No videos available</p>;
                 })()}
               </div>
               <button
@@ -454,7 +456,7 @@ export function TVGuide({ currentChannel, allChannels, videos, onChannelSelect, 
                 <div>
                   <h3 className="text-white font-bold text-lg">{selectedChannel.name}</h3>
                   <p className="text-white/40 text-xs">
-                    {getUpcomingCount(selectedChannel.id)} upcoming programs
+                    {(channelVideosMap.get(selectedChannel.id) || []).length} videos
                   </p>
                 </div>
               </div>
