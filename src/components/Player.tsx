@@ -4,10 +4,9 @@ import { Channel, Video, PlaybackState } from '../types';
 import { 
   Volume2, VolumeX, X, Tv, Clock, Play, 
   SkipForward, SkipBack, AlertCircle, Menu, Maximize2, 
-  Minimize2, Film, Heart, Share2, Info, 
+  Minimize2, Film, Heart, Info, 
   ChevronRight, ChevronLeft, ThumbsUp, 
-  ThumbsDown, Bookmark, MoreHorizontal, RefreshCw,
-  Home, Search, PlayCircle, Plus, ChevronDown
+  ThumbsDown, Bookmark, RefreshCw
 } from 'lucide-react';
 
 interface PlayerProps {
@@ -16,9 +15,19 @@ interface PlayerProps {
   allChannels?: Channel[];
   onChannelChange?: (channel: Channel) => void;
   onShowGuide?: () => void;
+  onToggleFavorite?: () => void;
+  isFavorite?: boolean;
 }
 
-export function Player({ channel, videos, allChannels = [], onChannelChange, onShowGuide }: PlayerProps) {
+export function Player({ 
+  channel, 
+  videos, 
+  allChannels = [], 
+  onChannelChange, 
+  onShowGuide,
+  onToggleFavorite,
+  isFavorite = false
+}: PlayerProps) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -30,20 +39,15 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
   const [showControls, setShowControls] = useState(true);
   const [isLiked, setIsLiked] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
-  const [showGenreMenu, setShowGenreMenu] = useState(false);
-  const [showChannelMenu, setShowChannelMenu] = useState(false);
-  const [selectedGenre, setSelectedGenre] = useState('All');
-  const [hoveredChannel, setHoveredChannel] = useState<string | null>(null);
   const [playerReady, setPlayerReady] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
+  const [retryCount, setRetryCount] = useState(0);
+  const [manualRetry, setManualRetry] = useState(false);
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
   const errorTimeoutRef = useRef<NodeJS.Timeout>();
-
-  // Genres for Netflix-style menu
-  const genres = ['All', 'Action', 'Comedy', 'Drama', 'Documentary', 'Horror', 'Romance', 'Sci-Fi'];
 
   // Find current channel index
   const currentChannelIndex = allChannels.findIndex(c => c.id === channel.id);
@@ -369,12 +373,9 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     const secs = seconds % 60;
     
     if (hours > 0) {
-      return `${hours}h ${mins}m`;
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
-    if (mins > 0) {
-      return `${mins}m ${secs}s`;
-    }
-    return `${secs}s`;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getCurrentProgress = () => {
@@ -405,16 +406,11 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
   // Loading state
   if (!playback || !playback.currentVideo || skippingVideo) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-red-600/30 border-t-red-600 rounded-full animate-spin mx-auto mb-6" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-red-600 font-bold text-2xl">N</div>
-            </div>
-          </div>
-          <p className="text-white/60 font-medium tracking-wide">
-            {skippingVideo ? 'Skipping to next...' : `Loading ${channel.name}...`}
+          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white/60 text-sm">
+            {skippingVideo ? 'Skipping to next video...' : `Loading ${channel.name}...`}
           </p>
         </div>
       </div>
@@ -455,123 +451,65 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
         />
       </div>
 
-      {/* Netflix-style Gradient Overlays */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/20 pointer-events-none" />
-      <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-transparent to-black/30 pointer-events-none" />
+      {/* Gradient Overlays */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none" />
 
-      {/* Netflix-style Top Navigation */}
-      <div className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent px-8 py-4 transition-opacity duration-300 z-50 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Top Bar */}
+      <div className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent px-6 py-4 transition-opacity duration-300 z-50 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            {/* Netflix Logo */}
-            <div className="text-red-600 font-black text-2xl tracking-tighter">NETFLIX</div>
-            
-            {/* Navigation Links */}
-            <div className="hidden md:flex items-center gap-6">
-              <button className="text-white text-sm font-medium hover:text-gray-300 transition">Home</button>
-              <button className="text-white text-sm font-medium hover:text-gray-300 transition">TV Shows</button>
-              <button className="text-white text-sm font-medium hover:text-gray-300 transition">Movies</button>
-              <button className="text-white text-sm font-medium hover:text-gray-300 transition">My List</button>
-              <button onClick={onShowGuide} className="text-white text-sm font-medium hover:text-gray-300 transition">Browse by Genre</button>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
+              <Tv className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h1 className="text-white font-semibold text-base">{channel.name}</h1>
+              <p className="text-white/40 text-[10px]">24/7 Live</p>
             </div>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <button className="p-2 rounded-full hover:bg-white/10 transition">
-              <Search className="w-5 h-5 text-white" />
-            </button>
-            <button className="p-2 rounded-full hover:bg-white/10 transition">
-              <Bell className="w-5 h-5 text-white" />
-            </button>
-            <button className="flex items-center gap-2 p-2 rounded-full hover:bg-white/10 transition">
-              <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                <span className="text-white text-xs font-bold">U</span>
-              </div>
-              <ChevronDown className="w-4 h-4 text-white" />
-            </button>
-          </div>
+          <button
+            onClick={onShowGuide}
+            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all"
+            title="TV Guide"
+          >
+            <Menu className="w-5 h-5 text-white" />
+          </button>
         </div>
       </div>
 
-      {/* Netflix-style Hero Content */}
-      <div className={`absolute bottom-40 left-0 right-0 px-8 md:px-16 transition-all duration-500 ${showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        <div className="max-w-3xl">
-          {/* Channel Badge */}
-          <div className="flex items-center gap-3 mb-4">
-            <div className="px-3 py-1 bg-red-600 text-white text-xs font-bold uppercase tracking-wider rounded">
-              LIVE
-            </div>
-            <div className="text-white/60 text-sm flex items-center gap-2">
-              <span>{channel.name}</span>
-              <span>•</span>
-              <span>24/7 Streaming</span>
-            </div>
-          </div>
-          
-          {/* Title */}
-          <h1 className="text-white text-4xl md:text-6xl font-bold mb-4 line-clamp-2">
+      {/* Center Info (Now Playing) */}
+      <div className={`absolute bottom-32 left-8 right-8 transition-all duration-300 ${showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <div className="max-w-2xl">
+          <p className="text-orange-500 text-xs font-bold uppercase tracking-wider mb-2">Now Playing</p>
+          <h2 className="text-white text-2xl md:text-3xl font-bold mb-2 line-clamp-2">
             {playback.currentVideo.title}
-          </h1>
-          
-          {/* Description */}
-          <p className="text-white/80 text-base md:text-lg mb-6 line-clamp-3 max-w-2xl">
-            {channel.description || 'Experience synchronized real-time broadcasting. Watch your favorite content continuously with our 24/7 streaming channels.'}
-          </p>
-          
-          {/* Action Buttons */}
-          <div className="flex items-center gap-4">
-            <button className="px-6 py-2 bg-white text-black rounded-md font-semibold flex items-center gap-2 hover:bg-white/90 transition">
-              <Play className="w-5 h-5 fill-black" />
-              Play
-            </button>
-            <button 
-              onClick={() => setIsBookmarked(!isBookmarked)}
-              className={`px-6 py-2 rounded-md font-semibold flex items-center gap-2 transition ${
-                isBookmarked ? 'bg-red-600 text-white' : 'bg-white/20 text-white hover:bg-white/30'
-              }`}
-            >
-              <Plus className="w-5 h-5" />
-              {isBookmarked ? 'Added' : 'My List'}
-            </button>
-            <button 
-              onClick={() => setShowInfoModal(true)}
-              className="px-6 py-2 bg-white/20 text-white rounded-md font-semibold flex items-center gap-2 hover:bg-white/30 transition"
-            >
-              <Info className="w-5 h-5" />
-              Info
-            </button>
-          </div>
-          
-          {/* Up Next */}
+          </h2>
           {playback.nextVideo && (
-            <div className="mt-6 flex items-center gap-3 text-white/60 text-sm">
-              <span>UP NEXT:</span>
-              <span className="text-white">{playback.nextVideo.title}</span>
-              <span>•</span>
-              <span>{formatDuration(playback.nextVideo.duration)}</span>
-            </div>
+            <p className="text-white/40 text-xs">
+              Up Next: {playback.nextVideo.title}
+            </p>
           )}
         </div>
       </div>
 
-      {/* Netflix-style Bottom Progress Bar */}
+      {/* Bottom Controls */}
       <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Progress Bar */}
         <div className="h-1 bg-white/20">
           <div 
-            className="h-full bg-red-600 transition-all duration-1000"
+            className="h-full bg-orange-500 transition-all duration-1000"
             style={{ width: `${getCurrentProgress()}%` }}
           />
         </div>
         
         {/* Control Bar */}
-        <div className="bg-gradient-to-t from-black/90 to-transparent px-8 py-4">
+        <div className="bg-gradient-to-t from-black/90 to-transparent px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {/* Previous Channel */}
               <button
                 onClick={handlePreviousChannel}
                 disabled={!hasPrevious}
-                className={`p-2 rounded-md transition ${hasPrevious ? 'hover:bg-white/20 text-white' : 'text-white/30 cursor-not-allowed'}`}
+                className={`p-2 rounded-lg transition ${hasPrevious ? 'hover:bg-white/10 text-white' : 'text-white/30 cursor-not-allowed'}`}
               >
                 <SkipBack className="w-5 h-5" />
               </button>
@@ -580,17 +518,17 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
               <button
                 onClick={handleNextChannel}
                 disabled={!hasNext}
-                className={`p-2 rounded-md transition ${hasNext ? 'hover:bg-white/20 text-white' : 'text-white/30 cursor-not-allowed'}`}
+                className={`p-2 rounded-lg transition ${hasNext ? 'hover:bg-white/10 text-white' : 'text-white/30 cursor-not-allowed'}`}
               >
                 <SkipForward className="w-5 h-5" />
               </button>
               
-              <div className="w-px h-6 bg-white/20 mx-2" />
+              <div className="w-px h-5 bg-white/20 mx-1" />
               
               {/* Mute */}
               <button
                 onClick={toggleMute}
-                className="p-2 rounded-md hover:bg-white/20 transition text-white"
+                className="p-2 rounded-lg hover:bg-white/10 transition text-white"
               >
                 {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
               </button>
@@ -598,18 +536,37 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
               {/* Skip Video */}
               <button
                 onClick={manualSkip}
-                className="p-2 rounded-md hover:bg-white/20 transition text-white flex items-center gap-1"
+                className="p-2 rounded-lg hover:bg-white/10 transition text-white"
               >
                 <SkipForward className="w-5 h-5" />
-                <span className="text-xs">Skip</span>
               </button>
+              
+              {/* Favorite Button */}
+              {onToggleFavorite && (
+                <button
+                  onClick={onToggleFavorite}
+                  className={`p-2 rounded-lg transition ${
+                    isFavorite ? 'text-orange-500' : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  <Heart className={`w-5 h-5 ${isFavorite ? 'fill-orange-500' : ''}`} />
+                </button>
+              )}
             </div>
             
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              {/* Info */}
+              <button
+                onClick={() => setShowInfoModal(true)}
+                className="p-2 rounded-lg hover:bg-white/10 transition text-white"
+              >
+                <Info className="w-5 h-5" />
+              </button>
+              
               {/* Fullscreen */}
               <button
                 onClick={toggleFullscreen}
-                className="p-2 rounded-md hover:bg-white/20 transition text-white"
+                className="p-2 rounded-lg hover:bg-white/10 transition text-white"
               >
                 {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
               </button>
@@ -626,8 +583,8 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
 
       {/* Channel Navigation Indicator */}
       {(hasPrevious || hasNext) && (
-        <div className={`absolute left-1/2 transform -translate-x-1/2 bottom-28 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-          <div className="bg-black/60 backdrop-blur-md rounded-full px-4 py-1.5 text-white/40 text-xs flex items-center gap-3">
+        <div className={`absolute left-1/2 transform -translate-x-1/2 bottom-24 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+          <div className="bg-black/60 rounded-full px-3 py-1 text-white/40 text-xs flex items-center gap-2">
             <SkipBack className="w-3 h-3" />
             <span>{currentChannelIndex + 1} / {allChannels.length}</span>
             <SkipForward className="w-3 h-3" />
@@ -635,42 +592,16 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
         </div>
       )}
 
-      {/* Netflix-style Channel Row (Bottom) */}
-      <div className={`absolute bottom-20 left-0 right-0 px-8 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-white font-semibold text-sm">Popular on {channel.name}</h3>
-          <button className="text-white/60 text-xs hover:text-white transition flex items-center gap-1">
-            Browse All <ChevronRight className="w-3 h-3" />
-          </button>
-        </div>
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {videos.slice(0, 10).map((video, idx) => (
-            <div
-              key={idx}
-              className="flex-shrink-0 w-32 h-20 bg-gradient-to-br from-gray-800 to-gray-900 rounded-md overflow-hidden cursor-pointer hover:scale-105 transition-transform relative group"
-            >
-              <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition" />
-              <div className="absolute bottom-1 left-1 right-1">
-                <p className="text-white text-[10px] line-clamp-2">{video.title}</p>
-                <p className="text-white/40 text-[8px] mt-0.5">{formatDuration(video.duration)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Error Toast */}
       {error && (
-        <div className="fixed top-24 left-1/2 transform -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top duration-300">
-          <div className="bg-red-600/95 backdrop-blur-md text-white px-6 py-3 rounded-lg shadow-2xl max-w-md">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">{error}</p>
-                {skipCountdown > 0 && (
-                  <p className="text-xs text-white/80 mt-1">Skipping in {skipCountdown}s...</p>
-                )}
-              </div>
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top duration-300">
+          <div className="bg-red-500/95 text-white px-4 py-2 rounded-lg shadow-lg max-w-md text-sm">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
+              {skipCountdown > 0 && (
+                <span className="text-white/80 text-xs ml-2">({skipCountdown}s)</span>
+              )}
             </div>
           </div>
         </div>
@@ -680,27 +611,28 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
       {showInfoModal && (
         <>
           <div className="fixed inset-0 bg-black/80 z-50" onClick={() => setShowInfoModal(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-gray-900 to-black rounded-t-2xl border-t border-white/10 p-6 animate-in slide-in-from-bottom duration-300 max-h-[80vh] overflow-y-auto">
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-zinc-900 rounded-t-xl border-t border-white/10 p-5 animate-in slide-in-from-bottom duration-300 max-h-[70vh] overflow-y-auto">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h3 className="text-white font-bold text-2xl">{channel.name}</h3>
-                <p className="text-white/60 text-sm mt-1">24/7 Live Channel</p>
+                <h3 className="text-white font-bold text-lg">{channel.name}</h3>
+                <p className="text-white/40 text-xs mt-1">24/7 Live Channel</p>
               </div>
               <button onClick={() => setShowInfoModal(false)} className="text-white/60 hover:text-white">
-                <X className="w-6 h-6" />
+                <X className="w-5 h-5" />
               </button>
             </div>
             
-            <p className="text-white/70 text-sm mb-6 leading-relaxed">
-              {channel.description || `${channel.name} - 24/7 streaming of curated content including movies, documentaries, and entertainment.`}
+            <p className="text-white/70 text-sm mb-4 leading-relaxed">
+              {channel.description || `${channel.name} - 24/7 streaming of curated content.`}
             </p>
             
-            <div className="flex items-center gap-4 text-white/40 text-xs border-t border-white/10 pt-4">
+            <div className="flex items-center gap-4 text-white/40 text-xs border-t border-white/10 pt-3">
               <div className="flex items-center gap-1">
                 <Play className="w-3 h-3" />
                 <span>{videos.length} videos</span>
               </div>
               <div className="flex items-center gap-1">
+                <Clock className="w-3div className="flex items-center gap-1">
                 <Clock className="w-3 h-3" />
                 <span>24/7 Live</span>
               </div>
@@ -711,12 +643,5 @@ export function Player({ channel, videos, allChannels = [], onChannelChange, onS
     </div>
   );
 }
-
-// Missing Bell component
-const Bell = ({ className }: { className?: string }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-  </svg>
-);
 
 export default Player;
