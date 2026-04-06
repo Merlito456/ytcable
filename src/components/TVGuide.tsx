@@ -55,38 +55,61 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
     const secs = seconds % 60;
     
     if (hours > 0) {
-      return `${hours}h ${mins}m`;
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
-    if (mins > 0) {
-      return `${mins}m ${secs}s`;
-    }
-    return `${secs}s`;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Format time
+  // Format time for display
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Calculate programs for a channel using actual video data
-  const calculateChannelPrograms = (channelVideos: Video[]): ProgramWithTime[] => {
+  // Calculate programs for a channel using the same logic as Player
+  const calculateChannelPrograms = (channelVideos: Video[], channelStartTime: number): ProgramWithTime[] => {
     if (!channelVideos.length) return [];
     
     const programs: ProgramWithTime[] = [];
     const now = new Date();
     const threeHoursLater = new Date(now.getTime() + 3 * 60 * 60 * 1000);
     
-    // Set base time to current time rounded to hour
-    const startBase = new Date();
-    startBase.setMinutes(0, 0, 0);
+    // Calculate total duration of all videos
+    const totalDuration = channelVideos.reduce((acc, v) => acc + (v.duration || 0), 0);
     
+    // Calculate current cycle elapsed time (same as Player)
+    const elapsedMs = Date.now() - channelStartTime;
+    const elapsedSeconds = elapsedMs / 1000;
+    const currentCycleElapsed = elapsedSeconds % totalDuration;
+    
+    // Find which video is currently playing and build schedule
     let accumulatedTime = 0;
+    let scheduleStartTime = new Date(now);
+    
+    // Find the current video offset to align schedule
+    let currentVideoIndex = -1;
+    let videoOffset = 0;
     
     for (let i = 0; i < channelVideos.length; i++) {
-      const video = channelVideos[i];
-      const startTime = new Date(startBase);
-      startTime.setSeconds(startTime.getSeconds() + accumulatedTime);
-      
+      const duration = channelVideos[i].duration || 0;
+      if (currentCycleElapsed < accumulatedTime + duration) {
+        currentVideoIndex = i;
+        videoOffset = currentCycleElapsed - accumulatedTime;
+        break;
+      }
+      accumulatedTime += duration;
+    }
+    
+    // Build schedule starting from current time
+    let currentStartTime = new Date(now);
+    currentStartTime.setSeconds(currentStartTime.getSeconds() - videoOffset);
+    
+    // Generate programs for the next 3 hours
+    let programIndex = currentVideoIndex;
+    let timeCursor = new Date(currentStartTime);
+    
+    for (let i = 0; i < channelVideos.length * 3 && programs.length < 20; i++) {
+      const video = channelVideos[programIndex % channelVideos.length];
+      const startTime = new Date(timeCursor);
       const endTime = new Date(startTime);
       endTime.setSeconds(endTime.getSeconds() + video.duration);
       
@@ -112,24 +135,21 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
           isNext: !isLive && startTime > now,
           hd: true,
           channelId: channelVideos[0]?.id || '',
-          order: i,
+          order: programIndex,
           youtubeId: video.youtubeId,
           progress
         });
       }
       
-      accumulatedTime += video.duration;
-      
-      if (startTime > threeHoursLater && programs.length > 0) {
-        break;
-      }
+      timeCursor = new Date(endTime);
+      programIndex++;
     }
     
-    return programs.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    return programs;
   };
 
   // Fetch videos for a specific channel
-  const fetchChannelVideos = async (channel: Channel) => {
+  const fetchChannelSchedule = async (channel: Channel) => {
     if (channelVideosMap.has(channel.id)) return;
     
     setLoadingChannels(prev => new Set(prev).add(channel.id));
@@ -146,11 +166,11 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
       
       setChannelVideosMap(prev => new Map(prev).set(channel.id, channelVideos));
       
-      // Calculate programs for this channel
-      const programs = calculateChannelPrograms(channelVideos);
+      // Calculate programs using the channel's startTime
+      const programs = calculateChannelPrograms(channelVideos, channel.startTime);
       setChannelProgramsMap(prev => new Map(prev).set(channel.id, programs));
     } catch (error) {
-      console.error(`Failed to fetch videos for channel ${channel.name}:`, error);
+      console.error(`Failed to fetch schedule for channel ${channel.name}:`, error);
     } finally {
       setLoadingChannels(prev => {
         const newSet = new Set(prev);
@@ -160,10 +180,10 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
     }
   };
 
-  // Load videos for all channels
+  // Load schedules for all channels
   useEffect(() => {
     allChannels.forEach(channel => {
-      fetchChannelVideos(channel);
+      fetchChannelSchedule(channel);
     });
   }, [allChannels]);
 
@@ -281,7 +301,6 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
           <div className="divide-y divide-white/5">
             {filteredChannels.map((channel) => {
               const programs = channelProgramsMap.get(channel.id) || [];
-              const channelVideos = channelVideosMap.get(channel.id) || [];
               const currentProgram = getCurrentProgram(channel.id);
               const nextProgram = getNextProgram(channel.id);
               const isCurrent = currentChannel.id === channel.id;
@@ -308,7 +327,7 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
                         <div>
                           <div className="font-bold text-white text-sm">{channel.name}</div>
                           <div className="text-[10px] text-white/40">
-                            {isLoading ? 'Loading...' : `${channelVideos.length} videos`}
+                            {isLoading ? 'Loading...' : `${upcomingCount} upcoming`}
                           </div>
                         </div>
                       </div>
@@ -425,11 +444,7 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
                       </div>
                     );
                   }
-                  const videos = channelVideosMap.get(currentChannel.id) || [];
-                  if (videos.length > 0) {
-                    return <p className="text-white/60 text-sm">{videos.length} videos available</p>;
-                  }
-                  return <p className="text-white/60 text-sm">No videos available</p>;
+                  return <p className="text-white/60 text-sm">No upcoming programs scheduled</p>;
                 })()}
               </div>
               <button
@@ -456,7 +471,7 @@ export function TVGuide({ currentChannel, allChannels, onChannelSelect, onClose 
                 <div>
                   <h3 className="text-white font-bold text-lg">{selectedChannel.name}</h3>
                   <p className="text-white/40 text-xs">
-                    {(channelVideosMap.get(selectedChannel.id) || []).length} videos
+                    {getUpcomingCount(selectedChannel.id)} upcoming programs
                   </p>
                 </div>
               </div>
