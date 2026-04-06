@@ -338,20 +338,14 @@ export default function App() {
   };
 
   const sidebarItems = getSidebarContent();
-  const sidebarTitle = sidebarTab === 'favorites' ? 'My Favorites' : sidebarTab === 'recent' ? 'Recently Watched' : 'All Channels';
 
   // Show loading state
   if (isLoadingChannels && channels.length === 0) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center">
-          <div className="relative">
-            <div className="w-20 h-20 border-4 border-red-600/30 border-t-red-600 rounded-full animate-spin mx-auto mb-6" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-red-600 font-black text-2xl">N</div>
-            </div>
-          </div>
-          <p className="text-white/60 text-lg font-medium">Loading your channels...</p>
+          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white/60 text-sm">Loading channels...</p>
         </div>
       </div>
     );
@@ -360,27 +354,19 @@ export default function App() {
   // If no channels exist
   if (channels.length === 0) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center max-w-md mx-auto p-8">
-          <div className="w-24 h-24 bg-gradient-to-br from-red-600 to-red-700 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl">
-            <Tv className="w-12 h-12 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white mb-4">YouTube Cable</h1>
-          <p className="text-white/60 mb-6">No channels available. Please add channels in the admin panel.</p>
+          <Tv className="w-16 h-16 text-white/20 mx-auto mb-4" />
+          <h1 className="text-xl font-bold text-white mb-2">YouTube Cable</h1>
+          <p className="text-white/40 text-sm mb-4">No channels available</p>
           {user?.email === "rabanes.johncarlo4@gmail.com" && (
             <button
               onClick={() => setShowAdmin(true)}
-              className="px-6 py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-all"
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 transition-all"
             >
               Open Admin Panel
             </button>
           )}
-          <button
-            onClick={handleAdminAccess}
-            className="mt-4 px-6 py-3 bg-white/10 text-white rounded-xl font-medium hover:bg-white/20 transition-all"
-          >
-            Admin Access (Ctrl+Shift+Z)
-          </button>
         </div>
       </div>
     );
@@ -401,7 +387,7 @@ export default function App() {
         />
       )}
 
-      {/* Right Sidebar - Channel Listing */}
+      {/* Right Sidebar */}
       <AnimatePresence>
         {showSidebar && (
           <>
@@ -410,60 +396,57 @@ export default function App() {
               onClick={() => setShowSidebar(false)}
             />
             <motion.div
-              initial={{ x: 400 }}
+              initial={{ x: 320 }}
               animate={{ x: 0 }}
-              exit={{ x: 400 }}
+              exit={{ x: 320 }}
               transition={{ type: "spring", damping: 25 }}
-              className="fixed right-0 top-0 bottom-0 w-96 bg-black/95 backdrop-blur-xl border-l border-white/10 z-50 shadow-2xl flex flex-col"
+              className="fixed right-0 top-0 bottom-0 w-80 bg-black/95 border-l border-white/10 z-50 shadow-2xl flex flex-col"
             >
               {/* Sidebar Header */}
               <div className="p-4 border-b border-white/10">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <List className="w-5 h-5 text-red-500" />
-                    <h2 className="text-white font-bold text-lg">Channel Guide</h2>
+                    <List className="w-5 h-5 text-orange-500" />
+                    <h2 className="text-white font-semibold text-base">Channels</h2>
                   </div>
                   <button
                     onClick={() => setShowSidebar(false)}
-                    className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all"
+                    className="p-1 rounded-lg bg-white/10 hover:bg-white/20 transition-all"
                   >
-                    <X className="w-5 h-5 text-white" />
+                    <X className="w-4 h-4 text-white" />
                   </button>
                 </div>
                 
                 {/* Tab Navigation */}
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                   <button
                     onClick={() => setSidebarTab('channels')}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                    className={`flex-1 py-1.5 rounded text-xs font-medium transition-all ${
                       sidebarTab === 'channels' 
-                        ? 'bg-red-600 text-white' 
+                        ? 'bg-orange-500 text-white' 
                         : 'bg-white/10 text-white/60 hover:bg-white/20'
                     }`}
                   >
-                    <Tv className="w-4 h-4" />
-                    All
+                    All ({channels.length})
                   </button>
                   <button
                     onClick={() => setSidebarTab('favorites')}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                    className={`flex-1 py-1.5 rounded text-xs font-medium transition-all ${
                       sidebarTab === 'favorites' 
-                        ? 'bg-red-600 text-white' 
+                        ? 'bg-orange-500 text-white' 
                         : 'bg-white/10 text-white/60 hover:bg-white/20'
                     }`}
                   >
-                    <Heart className="w-4 h-4" />
                     Favorites ({favorites.length})
                   </button>
                   <button
                     onClick={() => setSidebarTab('recent')}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                    className={`flex-1 py-1.5 rounded text-xs font-medium transition-all ${
                       sidebarTab === 'recent' 
-                        ? 'bg-red-600 text-white' 
+                        ? 'bg-orange-500 text-white' 
                         : 'bg-white/10 text-white/60 hover:bg-white/20'
                     }`}
                   >
-                    <Clock className="w-4 h-4" />
                     Recent
                   </button>
                 </div>
@@ -472,24 +455,9 @@ export default function App() {
               {/* Channel List */}
               <div className="flex-1 overflow-y-auto p-2 space-y-1">
                 {sidebarItems.length === 0 ? (
-                  <div className="text-center py-12">
-                    {sidebarTab === 'favorites' ? (
-                      <>
-                        <Heart className="w-12 h-12 text-white/20 mx-auto mb-3" />
-                        <p className="text-white/40 text-sm">No favorites yet</p>
-                        <p className="text-white/20 text-xs mt-1">Click the heart icon to add channels</p>
-                      </>
-                    ) : sidebarTab === 'recent' ? (
-                      <>
-                        <Clock className="w-12 h-12 text-white/20 mx-auto mb-3" />
-                        <p className="text-white/40 text-sm">No recently watched channels</p>
-                      </>
-                    ) : (
-                      <>
-                        <Tv className="w-12 h-12 text-white/20 mx-auto mb-3" />
-                        <p className="text-white/40 text-sm">No channels available</p>
-                      </>
-                    )}
+                  <div className="text-center py-8">
+                    <Heart className="w-8 h-8 text-white/20 mx-auto mb-2" />
+                    <p className="text-white/40 text-xs">No channels found</p>
                   </div>
                 ) : (
                   sidebarItems.map((channel, idx) => {
@@ -499,53 +467,44 @@ export default function App() {
                     return (
                       <div
                         key={channel.id}
-                        className={`flex items-center gap-3 p-3 rounded-lg transition-all cursor-pointer ${
+                        className={`flex items-center gap-2 p-2 rounded transition-all cursor-pointer ${
                           isActive 
-                            ? 'bg-red-600/20 border-l-4 border-red-600' 
-                            : 'hover:bg-white/10'
+                            ? 'bg-orange-500/20 border-l-2 border-orange-500' 
+                            : 'hover:bg-white/5'
                         }`}
                         onClick={() => handleChannelChange(channel)}
-                        onMouseEnter={() => setHoveredChannel(channel.id)}
-                        onMouseLeave={() => setHoveredChannel(null)}
                       >
-                        {/* Channel Number */}
-                        <div className="w-8 text-center">
-                          <span className={`text-sm font-mono ${isActive ? 'text-red-500' : 'text-white/40'}`}>
+                        <div className="w-6 text-center">
+                          <span className={`text-xs ${isActive ? 'text-orange-500' : 'text-white/40'}`}>
                             {idx + 1}
                           </span>
                         </div>
                         
-                        {/* Channel Icon */}
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                          isActive ? 'bg-red-600' : 'bg-white/10'
+                        <div className={`w-8 h-8 rounded flex items-center justify-center ${
+                          isActive ? 'bg-orange-500' : 'bg-white/10'
                         }`}>
-                          <Tv className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/60'}`} />
+                          <Tv className={`w-4 h-4 ${isActive ? 'text-white' : 'text-white/60'}`} />
                         </div>
                         
-                        {/* Channel Info */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className={`font-medium truncate ${isActive ? 'text-white' : 'text-white/80'}`}>
+                          <div className="flex items-center gap-1">
+                            <h3 className={`text-sm truncate ${isActive ? 'text-white' : 'text-white/80'}`}>
                               {channel.name}
                             </h3>
-                            {isFav && <Heart className="w-3 h-3 text-red-500 fill-red-500" />}
+                            {isFav && <Heart className="w-2.5 h-2.5 text-orange-500 fill-orange-500" />}
                           </div>
-                          <p className="text-[10px] text-white/40 truncate">
-                            {channel.description?.substring(0, 40) || '24/7 Live Stream'}
-                          </p>
                         </div>
                         
-                        {/* Favorite Button */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleFavorite(channel);
                           }}
-                          className={`p-2 rounded-lg transition-all ${
-                            isFav ? 'text-red-500' : 'text-white/40 hover:text-white/60'
+                          className={`p-1 rounded transition-all ${
+                            isFav ? 'text-orange-500' : 'text-white/40 hover:text-white/60'
                           }`}
                         >
-                          <Heart className={`w-4 h-4 ${isFav ? 'fill-red-500' : ''}`} />
+                          <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-orange-500' : ''}`} />
                         </button>
                       </div>
                     );
@@ -554,11 +513,9 @@ export default function App() {
               </div>
 
               {/* Sidebar Footer */}
-              <div className="p-4 border-t border-white/10">
-                <div className="text-white/30 text-[10px] text-center space-y-1">
-                  <p>Press 'S' to toggle sidebar • ESC to close</p>
-                  <p>1: All Channels • 2: Favorites • 3: Recent</p>
-                  <p>← → Change Channel • Ctrl+Shift+Z Admin</p>
+              <div className="p-3 border-t border-white/10">
+                <div className="text-white/30 text-[9px] text-center">
+                  <p>S: Toggle • 1-3: Tabs • ← →: Channels</p>
                 </div>
               </div>
             </motion.div>
@@ -583,38 +540,29 @@ export default function App() {
       {/* Password Modal */}
       <AnimatePresence>
         {showPasswordModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-8 bg-black/95 backdrop-blur-md">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-gradient-to-br from-gray-900 to-black border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl"
+              className="bg-zinc-900 border border-white/10 p-6 rounded-xl w-full max-w-sm"
             >
-              <div className="text-center mb-8">
-                <div className="w-20 h-20 bg-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Settings className="w-10 h-10 text-white" />
-                </div>
-                <h2 className="text-3xl font-black text-white">Admin Access</h2>
-                <p className="text-white/40 mt-2">Enter password to continue</p>
-              </div>
+              <h2 className="text-xl font-bold text-white mb-4 text-center">Admin Access</h2>
               <input
                 type="password"
                 autoFocus
                 placeholder="Enter Password"
-                className="w-full bg-black/50 border border-white/20 rounded-xl px-6 py-4 text-xl font-bold focus:outline-none focus:border-red-600 transition-colors mb-6 text-center"
+                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2 text-white text-center focus:outline-none focus:border-orange-500 mb-4"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     verifyPassword((e.target as HTMLInputElement).value);
                   }
-                  if (e.key === 'Escape') {
-                    setShowPasswordModal(false);
-                  }
                 }}
               />
-              <div className="flex gap-4">
+              <div className="flex gap-2">
                 <button
                   onClick={() => setShowPasswordModal(false)}
-                  className="flex-1 px-6 py-3 rounded-xl font-bold uppercase tracking-widest text-white/60 hover:text-white transition-colors"
+                  className="flex-1 px-4 py-2 rounded-lg text-white/60 hover:text-white"
                 >
                   Cancel
                 </button>
@@ -623,7 +571,7 @@ export default function App() {
                     const input = document.querySelector('input[type="password"]') as HTMLInputElement;
                     verifyPassword(input.value);
                   }}
-                  className="flex-1 px-6 py-3 bg-red-600 rounded-xl font-bold uppercase tracking-widest hover:bg-red-700 transition-colors"
+                  className="flex-1 px-4 py-2 bg-orange-500 rounded-lg hover:bg-orange-600"
                 >
                   Verify
                 </button>
@@ -636,23 +584,10 @@ export default function App() {
       {/* Sidebar Toggle Button */}
       <button
         onClick={() => setShowSidebar(!showSidebar)}
-        className="fixed right-4 top-1/2 transform -translate-y-1/2 z-30 bg-black/50 backdrop-blur-md p-3 rounded-full hover:bg-red-600 transition-all border border-white/10"
+        className="fixed right-4 top-1/2 transform -translate-y-1/2 z-30 bg-black/50 p-2 rounded-full hover:bg-orange-500 transition-all"
       >
-        {showSidebar ? <ChevronRight className="w-5 h-5 text-white" /> : <ChevronLeft className="w-5 h-5 text-white" />}
+        {showSidebar ? <ChevronRight className="w-4 h-4 text-white" /> : <ChevronLeft className="w-4 h-4 text-white" />}
       </button>
-
-      {/* Smart TV Remote Control Hint */}
-      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-30 pointer-events-none opacity-0 hover:opacity-100 transition-opacity">
-        <div className="bg-black/50 backdrop-blur-md rounded-full px-4 py-2 text-white/40 text-xs flex items-center gap-3">
-          <span>← → Change Channel</span>
-          <span>•</span>
-          <span>S for Sidebar</span>
-          <span>•</span>
-          <span>ESC to Close</span>
-          <span>•</span>
-          <span>Ctrl+Shift+Z Admin</span>
-        </div>
-      </div>
     </div>
   );
 }
