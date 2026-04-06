@@ -34,14 +34,12 @@ export function Player({
   const [errorDetails, setErrorDetails] = useState<string>('');
   const [skippingVideo, setSkippingVideo] = useState<Video | null>(null);
   const [skipCountdown, setSkipCountdown] = useState<number>(0);
-  const [showControls, setShowControls] = useState(true);
   const [playerReady, setPlayerReady] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
   const [retryCount, setRetryCount] = useState(0);
   const [manualRetry, setManualRetry] = useState(false);
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const controlsTimeoutRef = useRef<NodeJS.Timeout>();
   const skipTimeoutRef = useRef<NodeJS.Timeout>();
   const errorTimeoutRef = useRef<NodeJS.Timeout>();
 
@@ -74,23 +72,6 @@ export function Player({
       setSkippingVideo(null);
       onChannelChange(nextChannel);
     }
-  };
-
-  // Auto-hide controls after 3 seconds
-  useEffect(() => {
-    if (showControls) {
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-      controlsTimeoutRef.current = setTimeout(() => {
-        setShowControls(false);
-      }, 3000);
-    }
-    return () => {
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    };
-  }, [showControls]);
-
-  const handleMouseMove = () => {
-    setShowControls(true);
   };
 
   // Skip countdown timer
@@ -406,7 +387,7 @@ export function Player({
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-white/50 text-sm">
-            {skippingVideo ? 'Skipping...' : `Loading...`}
+            {skippingVideo ? 'Skipping...' : 'Loading...'}
           </p>
         </div>
       </div>
@@ -417,7 +398,6 @@ export function Player({
     <div 
       ref={containerRef}
       className="fixed inset-0 bg-black"
-      onMouseMove={handleMouseMove}
     >
       {/* YouTube Player */}
       <div className="absolute inset-0">
@@ -447,11 +427,11 @@ export function Player({
         />
       </div>
 
-      {/* Simple Gradient Overlay for text visibility */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+      {/* Gradient Overlay for text visibility */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none" />
 
-      {/* Top Bar - Simple */}
-      <div className={`absolute top-0 left-0 right-0 px-6 py-4 transition-opacity duration-300 z-50 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Top Bar - Always Visible */}
+      <div className="absolute top-0 left-0 right-0 px-6 py-4 z-50 bg-gradient-to-b from-black/80 to-transparent">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Tv className="w-5 h-5 text-orange-500" />
@@ -466,8 +446,8 @@ export function Player({
         </div>
       </div>
 
-      {/* Now Playing Info - Simple */}
-      <div className={`absolute bottom-24 left-6 right-6 transition-all duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Now Playing Info - Always Visible */}
+      <div className="absolute bottom-28 left-6 right-6 z-40">
         <div className="max-w-lg">
           <p className="text-orange-500 text-[10px] font-bold uppercase tracking-wider mb-1">Now Playing</p>
           <h2 className="text-white text-lg font-semibold line-clamp-2">
@@ -481,8 +461,8 @@ export function Player({
         </div>
       </div>
 
-      {/* Bottom Controls - Simple */}
-      <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Bottom Controls - Always Visible */}
+      <div className="absolute bottom-0 left-0 right-0 z-40">
         {/* Progress Bar */}
         <div className="h-0.5 bg-white/20">
           <div 
@@ -492,7 +472,7 @@ export function Player({
         </div>
         
         {/* Control Bar */}
-        <div className="bg-gradient-to-t from-black/80 to-transparent px-6 py-3">
+        <div className="bg-gradient-to-t from-black/90 to-black/70 px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               {/* Previous Channel */}
@@ -573,8 +553,8 @@ export function Player({
 
       {/* Channel Position Indicator */}
       {(hasPrevious || hasNext) && (
-        <div className={`absolute left-1/2 transform -translate-x-1/2 bottom-20 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-          <div className="bg-black/50 rounded-full px-2 py-0.5 text-white/40 text-[9px] flex items-center gap-2">
+        <div className="absolute left-1/2 transform -translate-x-1/2 bottom-20 z-40">
+          <div className="bg-black/60 rounded-full px-2 py-0.5 text-white/40 text-[9px] flex items-center gap-2">
             <span>{currentChannelIndex + 1} / {allChannels.length}</span>
           </div>
         </div>
@@ -595,7 +575,7 @@ export function Player({
         </div>
       )}
 
-      {/* Info Modal - Simple */}
+      {/* Info Modal */}
       {showInfoModal && (
         <>
           <div className="fixed inset-0 bg-black/80 z-50" onClick={() => setShowInfoModal(false)} />
